@@ -2,6 +2,8 @@ import yaml
 from pathlib import Path
 import logging
 
+#USE PYDANTIC FOR EASIER VALIDATION
+
 REQUIRED_STRUCTURE = {
     "camera_geometry": [
         "pcm_count",
@@ -31,6 +33,14 @@ def is_valid_config(cfg):
     io = cfg.get("io")
 
     if not all(isinstance(x, dict) for x in [cam, dat, calib, io]):
+        return False
+    if not dat.get("evbfilepath"):
+        return False
+
+    if not calib.get("drsoffset"):
+        return False
+
+    if not io.get("output"):
         return False
 
     for key in REQUIRED_STRUCTURE["camera_geometry"]:

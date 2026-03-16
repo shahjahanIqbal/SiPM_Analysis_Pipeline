@@ -15,10 +15,11 @@ import cmyt
 
 import os
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
-
+config = load_config("config/config.yaml")
 #offset_filepath = Path("../DRS_OFFSET/all_cdm_ddb_drsoffsets_fro_09112024_1.cofsm")
-offset_filepath = Path("../DRS_OFFSET/offsetcal_January13012026.txt")
-adc_data_path = Path("../output/evts.h5")
+#offset_filepath = Path("../DRS_OFFSET/offsetcal_January13012026.txt")
+offset_filepath = Path(config["calib"]["drsoffset"])
+adc_data_path = Path("output/s0534+2201_339_flashCAL_14122025_2_EVBdata.h5")
 
 #---------------------------------------------|Gaussian Function|---------------------------------------------#
 def gaussianFunction(x,  sigma = 5): # Width of a Cherenkov pulse is typically around 25 ns
@@ -127,7 +128,7 @@ if not offset_filepath.exists():
     exit
 
 elif not adc_data_path.exists():
-    logging.error(f"Output file not found in the directory {offset_filepath}. Make sure the event extraction is done first or check the directory path")
+    logging.error(f"Output file not found in the directory {adc_data_path}. Make sure the event extraction is done first or check the directory path")
     exit
 
 
@@ -555,8 +556,9 @@ def main():
         cstop_slice = cstop_all[event_number]
         skip_cell_slice = skip_cell[event_number]
         #offsets = np.loadtxt("../DRS_OFFSET/all_cdm_ddb_drsoffsets_fro_09112024_1.cofsm")
-        offsets = np.loadtxt("../DRS_OFFSET/offsetcal_January13012026.txt")
-        config = load_config("../config/config.yaml")
+        config = load_config("config/config.yaml")
+        offsets = np.loadtxt(offset_filepath)
+        
 
         geometry = CameraLayout(config)
         output_dir = Path("../test_output")

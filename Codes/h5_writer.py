@@ -98,14 +98,18 @@ def main():
     geometry = CameraLayout(config)
     pixelmap_filename = geometry.camera_name
     # Load pixel map 
-    #with h5py.File(f"../geometry/{pixelmap_filename}.h5", "r") as f:
-    ##with h5py.File(f"../geometry/pixel_map.h5", "r") as f:
-    #    pixel_map = f["PIXEL_MAP"][:].astype(int)
+
     pixel_map = geometry.loadPixelMap(f"../geometry/{pixelmap_filename}.h5")
     # Load offsets 
-    #offsets = np.loadtxt("../DRS_OFFSET/all_cdm_ddb_drsoffsets_fro_09112024_1.cofsm")
-    offsets = np.loadtxt("../DRS_OFFSET/offsetcal_January13012026.txt")
+    
+    #offsets = np.loadtxt("../DRS_OFFSET/offsetcal_January13012026.txt")
+    drs_path = Path(config["calib"]["drsoffset"])
 
+    if not drs_path.exists():
+        raise FileNotFoundError(f"DRS offset file not found: {drs_path}")
+    
+    offsets = np.loadtxt(drs_path)
+    
     # Precompute channel mask to ignore reference pulse 
     gch = np.arange(geometry.N_GLOBAL_CH)
     #mask = (gch % geometry.N_CH_PER_DDB != geometry.N_CH_PER_DDB - 1)
@@ -114,7 +118,7 @@ def main():
     output_dir.mkdir(exist_ok=True)
 
     # Open event file once
-    with h5py.File("/home/shahjahan/Desktop/SiPM/Analysis_Pipeline/Codes/output/evts.h5", "r") as f:
+    with h5py.File("/home/shahjahan/Desktop/SiPM/Analysis_Pipeline/Codes/output/s0534+2201_339_flashCAL_14122025_2_EVBdata.h5", "r") as f:
 
         roi_all = f["adc/roi_data"]
         cstop_all = f["adc/cstop"]
@@ -123,7 +127,7 @@ def main():
         n_events = roi_all.shape[0]
   
 
-        with ProcessPoolExecutor(max_workers= max(1, os.cpu_count() - 1)) as executor:
+        with ProcessPoolExecutor(max_workers = max(1, os.cpu_count() - 1)) as executor:
 
             futures = []
 
@@ -172,31 +176,6 @@ def main():
                     except Exception as e:
                         print("Worker crashed:", e)
                         traceback.print_exc()
-            
-            '''
-            with DataWriter(output_path=output_dir, subarray=subarray) as writer:
-            
-                for result in futures.result:
-                
-                    event = ArrayEventContainer()
-
-                    # event identifiers
-                    event.index.event_id = result["event_id"]
-                    event.index.obs_id = 1
-
-                    # trigger info (required)
-                    event.trigger.tels_with_trigger = [1]
-
-                    # telescope data
-                    tel_id = 1
-                    tel = event.dl1.tel[tel_id]
-
-                    tel.image = result["image_LG"].flatten().astype(np.float32)
-                    tel.peak_time = np.zeros_like(tel.image)
-
-                    writer(event)
-            '''
-        
 
 if __name__ == "__main__":
     main()
