@@ -14,6 +14,7 @@ def dataExtractor(event_id, event_info, data, geometry, ROI):
     valid_mask = np.zeros(N_GLOBAL_CH, dtype=bool)
     cstop_arr = np.zeros(N_GLOBAL_CH, dtype=np.int16)
     skip_arr = np.zeros(N_GLOBAL_CH, dtype=np.int16)
+    roi_cell = np.zeros(N_GLOBAL_CH, dtype=np.int16)
     event_number = None
     
     for si, ei in packets:
@@ -58,6 +59,7 @@ def dataExtractor(event_id, event_info, data, geometry, ROI):
                 valid_mask[glob_ch_index] = True
                 cstop_arr[glob_ch_index] = CStop
                 skip_arr[glob_ch_index] = Skip_Cell
+                roi_cell[glob_ch_index] = ROI_Cell
                 
 
                 for index in range(ROI_Cell // 2):
@@ -79,7 +81,7 @@ def dataExtractor(event_id, event_info, data, geometry, ROI):
         "event_number": event_number,
         "adc": event_adc,
         "valid_mask": valid_mask,
-        "roi_cell": ROI_Cell,
+        "roi_cell": roi_cell,
         "cstop": cstop_arr,
         "skip_cell": skip_arr,
         "time_stamp": time_stamp,

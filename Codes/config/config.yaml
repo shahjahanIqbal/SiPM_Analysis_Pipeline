@@ -21,7 +21,8 @@ camera_geometry:
 data:
   #evbfilepath: /home/shahjahan/Desktop/SiPM/Analysis_Pipeline/Codes/data/s0534+2201_339_flashCAL_14122025_2_EVBdata.eve
   #evbfilepath: /home/shahjahan/Desktop/SiPM/Analysis_Pipeline/Codes/data/s0534+2201_405_flashCAL_12012026_2_EVBdata.eve
-  evbfilepath: /home/shahjahan/Desktop/SiPM/Analysis_Pipeline/Codes/data/s0534+2201_455_flashCAL_21012026_2_EVBdata.eve
+  #evbfilepath: /home/shahjahan/Desktop/SiPM/Analysis_Pipeline/Codes/data/s0534+2201_455_flashCAL_21012026_2_EVBdata.eve
+  evbfilepath: /home/shahjahan/Desktop/SiPM/Analysis_Pipeline/Codes/data/evt.txt
 
 calib:
   drsoffset: /home/shahjahan/Desktop/SiPM/Analysis_Pipeline/Codes/DRS_OFFSET/offsetcal_January13012026.txt 

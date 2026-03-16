@@ -11,7 +11,6 @@ from config_loader import load_config
 from geometry import CameraLayout
 from registry_creator import fetchPacketIndices, build_event_registry
 from data_extractor import dataExtractor
-import logging
 from logging.handlers import RotatingFileHandler
 import datetime
 from tqdm import tqdm
@@ -25,76 +24,88 @@ class EventProcessor():
 
     def __init__(self, config_path):
         self.config_path = Path(config_path)
-        self.evb_path = None#Path(evb_path)
+        self.evb_path = None
+        self.evb_files = []
         self.output_dir = None
         self.config = None
         self.geometry = None
         self.registry = None
         self.extracted_events = []
 
+
     def setup(self):
         logging.info("Loading configuration")
         self.config = load_config(self.config_path)
-
+        print("Config loaded")
         logging.info("Initializing geometry")
         self.geometry = CameraLayout(self.config)
-        self.evb_path = Path(self.config["data"]["evbfilepath"])
+        self.evb_path = self.config["data"]["evbfilepath"]
+
+        if not self.evb_path:
+            raise ValueError("Config error: 'data.evbfilepath' is not set.")
+
+        
+        if (self.evb_path.split('/')[-1].split('.')[-1] == 'txt'):
+
+            for evtfile in np.loadtxt(self.evb_path, dtype = str):
+                if not Path(evtfile).exists():
+                    raise FileNotFoundError(f"{evtfile} file not found. Skipping...")
+                    
+                self.evb_files.append(Path(evtfile.strip()))
+                
+        else:
+            if not Path(self.evb_path).exists():
+                raise FileNotFoundError(f"EVB file not found: {self.evb_path}")
+            self.evb_files = [Path(self.evb_path)]
+
+        
         
         self.output_dir = Path(self.config["io"]["output"])
         if not self.output_dir.exists():
             self.output_dir.mkdir(exist_ok=True)
         
-        if not self.evb_path.exists():
-            raise FileNotFoundError(f"EVB file not found: {self.evb_path}")
 
-        logging.info(f"Loading EVB file: {self.evb_path}")
-        self.data = np.memmap(self.evb_path, dtype=np.uint32, mode="r")
 
-    def buildRegistry(self):
-        start_indices, end_indices = fetchPacketIndices(
-            self.data,
+    def buildRegistry(self, data):
+        start_indices, end_indices = fetchPacketIndices( 
+            data,
             self.START_FRAME,
             self.END_FRAME
         )
 
-        self.registry = build_event_registry(
-            self.data,
+        registry = build_event_registry(
+            data,
             start_indices,
             end_indices
         )
+        return registry
 
 
-    def extractEventsParallel(self):
+    def extractEventsParallel(self, data, registry, outfile_name):
 
         logging.info("Preparing event jobs")
 
         ROI = self.config["camera_geometry"]["readout"]["roi_samples"]
 
         jobs = []
-
+        
+    
         # ---------------- Build Jobs ----------------
-        for event_id, event_info in self.registry.items():
-
+        for event_id, event_info in registry.items():
             packet_ranges = event_info["packets"]
-
             if not packet_ranges:
                 continue
-
             start = min(si for si, _ in packet_ranges)
             end   = max(ei for _, ei in packet_ranges)
-
-            data_slice = self.data[start:end+1]
-
+            data_slice = data[start:end+1]
             adjusted_packets = [
                 (si - start, ei - start)
                 for si, ei in packet_ranges
             ]
-
             event_info_local = {
                 "packets": adjusted_packets,
                 "quality": event_info["quality"]
             }
-
             jobs.append((event_id, event_info_local, data_slice)) #DO NOT CREATE ARRAY COPIES OF DATASLICE, PASS self.data AND INDICES TO SAVE MEMORY
 
         logging.info(f"Submitting {len(jobs)} events to workers")
@@ -105,15 +116,10 @@ class EventProcessor():
         # ---------------- Write HDF5 ----------------
         N_GLOBAL_CH = self.geometry.N_GLOBAL_CH
 
-        #output_dir = Path("../output")
-        #output_dir.mkdir(exist_ok=True)
-
-        with h5py.File(self.output_dir / "evts.h5", "w") as h5f:
-
-            nevents = len(self.registry)
-
+        
+        with h5py.File(self.output_dir / f"{outfile_name}.h5", "w") as h5f:
+            nevents = len(registry)
             d_event = h5f.create_dataset("events/event_id", (nevents,), dtype="i4")
-
             d_adc = h5f.create_dataset(
                 "adc/roi_data",
                 (nevents, N_GLOBAL_CH, ROI),
@@ -121,44 +127,27 @@ class EventProcessor():
                 compression="gzip",
                 chunks=(1, N_GLOBAL_CH, ROI),
             )
-
             d_cstop = h5f.create_dataset(
                 "adc/cstop",
                 (nevents, N_GLOBAL_CH),
                 dtype="i2"
             )
-
             d_roi_cell = h5f.create_dataset(
                 "adc/roi_cell",
                 (nevents, N_GLOBAL_CH),
                 dtype="i2"
             )
-
             d_skip_cell = h5f.create_dataset(
                 "adc/skip_cell",
                 (nevents, N_GLOBAL_CH),
                 dtype="i2"
             )
-
-            d_time_stamp = h5f.create_dataset(
-                "adc/time_stamp",
-                (nevents, N_GLOBAL_CH),
-                dtype="f4"
-            )
-
-            d_time_elapsed = h5f.create_dataset(
-                "adc/time_elapsed",
-                (nevents, N_GLOBAL_CH),
-                dtype="i4"
-            )
-
             d_qual = h5f.create_dataset(
                 "adc/quality",
                 (nevents,),
                 dtype="i2"
             )
             with ProcessPoolExecutor(max_workers= max(1, os.cpu_count() - 1)) as executor:
-
                 futures = [
                     executor.submit(
                         dataExtractor,
@@ -170,14 +159,12 @@ class EventProcessor():
                     )
                     for event_id, event_info, data_slice in jobs
                 ]
-
                 for future in tqdm(as_completed(futures),
                                    total=len(futures),
                                    desc="Processing events",
                                    unit="event"):
                     try:
                         result = future.result()
-                        
                         idx = result["event_id"] 
                         d_event[idx] = result["event_number"]
                         d_adc[idx] = result["adc"]
@@ -185,19 +172,21 @@ class EventProcessor():
                         d_skip_cell[idx] = result["skip_cell"]
                         d_qual[idx] = result["quality"] 
                         d_roi_cell[idx] = result["roi_cell"]
-                        #d_time_stamp[idx] = result["time_stamp"]
-                        #d_time_elapsed[idx] = result["time_elapsed"]
-
                     except Exception as e:
                         logging.error(f"Worker crashed: {e}")
-
             logging.info("Parallel extraction complete")
           
                        
     def run(self):
         self.setup()
-        self.buildRegistry()
-        self.extractEventsParallel()
+
+        for evb in (self.evb_files):
+            logging.info(f"Processing {evb}")    
+            data = np.memmap(evb, dtype=np.uint32, mode = 'r')
+            registry = self.buildRegistry(data)
+            outfile_name = Path(evb).stem
+            
+            self.extractEventsParallel(data, registry, outfile_name)
     
 
 
@@ -240,7 +229,7 @@ if __name__ == "__main__":
 
 
     pipeline = EventProcessor(
-        config_path="../config/config.yaml"
+        config_path="config/config.yaml"
     )
 
     pipeline.run()

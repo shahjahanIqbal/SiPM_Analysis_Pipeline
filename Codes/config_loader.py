@@ -25,10 +25,13 @@ def is_valid_config(cfg):
     if ("camera_geometry" not in cfg) or ("data" not in cfg) or ("calib" not in cfg) or ("io" not in cfg):
         return False
 
-    cam = cfg["camera_geometry"]
-    dat = cfg["data"]
-    calib = cfg["calib"]
-    io = cfg["io"]
+    cam = cfg.get("camera_geometry")
+    dat = cfg.get("data")
+    calib = cfg.get("calib")
+    io = cfg.get("io")
+
+    if not all(isinstance(x, dict) for x in [cam, dat, calib, io]):
+        return False
 
     for key in REQUIRED_STRUCTURE["camera_geometry"]:
         if key not in cam:
