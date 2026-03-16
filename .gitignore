@@ -1,0 +1,8 @@
+*.eve
+*.h5
+*.cofsm
+.~lock.*
+__pycache__/
+*.pyc
+data/
+Event_Files/
