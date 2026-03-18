@@ -13,13 +13,13 @@ class CameraLayout():
 
     def __init__(self,config_file):
     
-        cam = config_file["camera_geometry"]
-        self.N_CH_PER_DDB = cam["channel_count"]
-        self.N_DDB = cam["ddb_count"]
-        self.N_PCM = cam["pcm_count"]
+        self.cam = config_file["camera_geometry"]
+        self.N_CH_PER_DDB = self.cam["channel_count"]
+        self.N_DDB = self.cam["ddb_count"]
+        self.N_PCM = self.cam["pcm_count"]
         self.N_GLOBAL_CH = self.N_PCM * self.N_DDB * self.N_CH_PER_DDB
-        self.camera_name = cam["name"]
-        self.roi = cam["readout"]["roi_samples"]
+        self.camera_name = self.cam["name"]
+        self.roi = self.cam["readout"]["roi_samples"]
 
         
     
@@ -28,8 +28,8 @@ class CameraLayout():
         total_pixels = CHANNEL_COUNT * self.N_DDB * self.N_PCM
         pixel_indices = np.arange(0, total_pixels, 1)
         DDB_INDEX = 0
-        self.rows = cam["layout"]["rows"]
-        self.cols = cam["layout"]["cols"]
+        self.rows = self.cam["layout"]["rows"]
+        self.cols = self.cam["layout"]["cols"]
         IMG = np.zeros((self.rows, self.cols))
         IMG = np.zeros((16,16))
         pcm_size = 4

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import numpy as np
 #import traceback
 import h5py
@@ -20,6 +21,18 @@ config = load_config("config/config.yaml")
 #offset_filepath = Path("../DRS_OFFSET/offsetcal_January13012026.txt")
 offset_filepath = Path(config["calib"]["drsoffset"])
 adc_data_path = Path("output/s0534+2201_339_flashCAL_14122025_2_EVBdata.h5")
+
+# Validate file paths for DRS Offsets and ADC data
+
+if not offset_filepath.exists():
+    logging.error(f"DRS OFFSET file missing! Please ensure the offset correction files are present in the directory {offset_filepath}")
+    exit
+
+elif not adc_data_path.exists():
+    logging.error(f"Output file not found in the directory {adc_data_path}. Make sure the event extraction is done first or check the directory path")
+    exit
+
+
 
 #---------------------------------------------|Gaussian Function|---------------------------------------------#
 def gaussianFunction(x,  sigma = 5): # Width of a Cherenkov pulse is typically around 25 ns
@@ -51,6 +64,13 @@ def peakFinder(adc, kernel = GAUSS):
 #---------------------------------------------|ADC to mV Conversion|---------------------------------------------#
 def adcTomV(adc, cstop, skip_cell, offsets, peak_pos = None): # offsets must be sliced from the original file specifically for the channel              
                                                               # peak_pos parameter will be None for HG and calculated, the same will be used for LG
+    '''
+    Channel-wise conversion of adc data t0 mV. 
+    The ADC data, skip_cell, cstop and offsets for each channel is input 
+    peak_pos is None by default. This is to account for the possible lack of any detectable pulse in the LG channel.
+    The peak is calculated for HG channel regardless of saturation as the convolution is capable of estimating the peak
+    The same peak will be passed as the input parameter for the LG channel conversion
+    '''
     #ADC to mV and ROI to time conversion       
     if peak_pos is None:
         peak_pos = peakFinder(adc)
@@ -109,7 +129,13 @@ def adcTomV(adc, cstop, skip_cell, offsets, peak_pos = None): # offsets must be 
 
 
 def chargePerPixel(peak_x, peak_y, start, end):
-    
+    '''
+    The pulse, ROI values, and pulse start and end positions are the input parameters
+    The pulse is smoothened with a savgol filter to remove noise before integration
+    start and end positions are used to define the pulse window
+    The pulse is integrated within the window to compute the charge.
+    Resistance is 50ohm
+    '''
     #print(f"peaky before smoothing {peak_y}")
     smooth_peak = savgol_filter(peak_y, 9, 3) #sSmoothing to reduce noise before integration
     #print(f"peaky after smoothing: {smooth_peak}")
@@ -123,13 +149,6 @@ def chargePerPixel(peak_x, peak_y, start, end):
 
 
 
-if not offset_filepath.exists():
-    logging.error(f"DRS OFFSET file missing! Please ensure the offset correction files are present in the directory {offset_filepath}")
-    exit
-
-elif not adc_data_path.exists():
-    logging.error(f"Output file not found in the directory {adc_data_path}. Make sure the event extraction is done first or check the directory path")
-    exit
 
 
 '''def edgeDetector(ref_pulse_mv, peak_pos, window=20, thr_offset=0.9):
@@ -155,6 +174,11 @@ elif not adc_data_path.exists():
 
 def edgeDetector(ref_pulse_mv, peak_pos, window=20, thr_frac=0.4):
 
+    '''
+    Detects the rising edge of the reference pulse
+    Used to correct the delay in the arrival time computation
+    '''
+
     peak_mv = ref_pulse_mv[peak_pos]
     threshold = peak_mv * thr_frac
 
@@ -172,6 +196,11 @@ def edgeDetector(ref_pulse_mv, peak_pos, window=20, thr_frac=0.4):
     return peak_pos
 
 def imageGen(roi_data, cstop, skip_cell, offsets, geometry):
+
+    '''
+    Computes the LG and HG charge and the corrected pulse arrival time for each pixel
+    Returns the Charge and Arrival Time data for each channel which will be used to generate the LG, HG and Arrival Time images
+    '''
     
     adc_saturation = 16383 # 14 bit ADC saturation level
     
@@ -181,11 +210,9 @@ def imageGen(roi_data, cstop, skip_cell, offsets, geometry):
     
     charge_image = np.zeros(geometry.N_GLOBAL_CH)
     time_image = np.zeros(geometry.N_GLOBAL_CH)
-    r_1_image = np.zeros(geometry.N_GLOBAL_CH)
+    
     for gch in range(0, geometry.N_GLOBAL_CH, geometry.N_CH_PER_DDB):
-        sig_ch = range(gch, gch + geometry.N_CH_PER_DDB -1)
-
-        
+                
         ref_data = roi_data[gch + geometry.N_CH_PER_DDB - 1]
         #arrival_time_ref = peakFinder(ref_data)
         #ref_time = arrival_time_ref
@@ -194,7 +221,7 @@ def imageGen(roi_data, cstop, skip_cell, offsets, geometry):
         block_size = 1024
 
         for i in range(1, geometry.N_CH_PER_DDB - 1, 2):
-            # LOGIC IS NOT ROBUST AS RANDOM SPIKES CAN TRIGGER THE SATURATION CONDITION. MUST CONSIDER PULSE WIDTH OR OTHER FACTORS 
+             
             adc_pulse_hg = roi_data[gch + i]
             adc_pulse_lg = roi_data[gch + i - 1]
             cstop_val_hg = cstop[gch + i]
@@ -202,14 +229,17 @@ def imageGen(roi_data, cstop, skip_cell, offsets, geometry):
             skip_cell_val_hg = skip_cell[gch + i]
             skip_cell_val_lg = skip_cell[gch + i - 1]
             block_size = 1024
-            if np.any(adc_pulse_hg >= adc_saturation):
+            if np.any(adc_pulse_hg >= adc_saturation): 
+                
+                # LOGIC IS NOT ROBUST AS RANDOM SPIKES CAN TRIGGER THE SATURATION CONDITION. MUST CONSIDER PULSE WIDTH OR OTHER FACTORS
+                # MAYBE LOOK FOR SATURATION AFTER SMOOTHING ADC AND CONVERTING TO mV. RETURN A SATURATION FLAG AND IMPLEMENT CONDITIONAL STATEMENT 
+                # DURING ASSIGNMENT TO ARRAY
+
                 #print("Saturation")
                 lch_id_lg, ddb_id_lg, pcm_id_lg = geometry.local_channel_id(gch + i - 1) # Wont really need the lg ddb and pcm but just to be safe
                 #print(lch_id_lg, ddb_id_lg, pcm_id_lg)
                 #print(f"HG channel {gch} saturated. Using LG for charge calculation.")
                 drs_offset_time_lg = block_size * (pcm_id_lg * geometry.N_DDB + ddb_id_lg)
-
-
                 drs_offset_slice_lg = offsets[drs_offset_time_lg: drs_offset_time_lg + block_size, lch_id_lg + 1] # +1 because first column DRS capacitor index
 
 
@@ -249,10 +279,11 @@ def imageGen(roi_data, cstop, skip_cell, offsets, geometry):
 
     return charge_image, time_image
 
-def plotReferencePulses(event_id,
-                        roi_data,
-                        geometry,
-                        output_dir):
+def plotReferencePulses(event_id, roi_data, geometry, output_dir):
+    '''
+    Plots all the reference channel pulse for an event along with the detected edge position
+    Used for debugging purposes
+    '''
 
     ref_dir = output_dir / "ref_pulses"
     ref_dir.mkdir(parents=True, exist_ok=True)
@@ -268,11 +299,11 @@ def plotReferencePulses(event_id,
         # same logic as imageGen
         
         edge = edgeDetector(ref_pulse, peak_pos)
-        ref_pulse, _, _, _, _ = adcTomV(roi_data[ref_ch], cstop=0, skip_cell=0,offsets=None)
+        ref_pulse, _, _, _, _ = adcTomV(roi_data[ref_ch], cstop=0, skip_cell=0, offsets=None)
         x = np.arange(len(ref_pulse))
         
 
-        fig, ax = plt.subplots(figsize=(8,5), dpi=150)
+        _, ax = plt.subplots(figsize=(8,5), dpi=150)
 
         ax.plot(x, ref_pulse, "o--", label="Reference Pulse")
 
@@ -323,6 +354,9 @@ def mapToPixels(geometry, image, pixel_map, gch):
 
 
 def saveImage(event_id, image, cmap = 'viridis'):
+    '''
+    Saves a compressed image for quick inspection
+    '''
     colormap = plt.get_cmap(cmap)
     rgba = colormap(image)   
     rgb = (rgba[:, :, :3] * 255).astype("uint8")
@@ -330,7 +364,12 @@ def saveImage(event_id, image, cmap = 'viridis'):
     tiff.imwrite(Path(event_id).with_suffix(".tiff"), rgb, compression="deflate")
 
 def saveImageHiRes(event_id, label, image, output_dir, pixel_map, geometry, cmap='viridis'):
-
+    '''
+    Saves a high resolution tiff image of the input event ID
+    Displays pixel id, the global channel index in (LG, HG) format. 
+    Optionally charge or time values can also be displayed by uncommenting the specific code block
+    label specifies if its a charge image or arrival time image
+    '''
     fig, ax = plt.subplots(figsize=(8, 8), dpi=300)
     
     im = ax.imshow(image, cmap=cmap)
@@ -384,6 +423,10 @@ def saveImageHiRes(event_id, label, image, output_dir, pixel_map, geometry, cmap
     plt.close(fig)
 
 def chargeDist(event_id, image, label, xlabel,  output_dir):
+    '''
+    Saves the charge and time distributions
+    Statistics are also displayed 
+    '''
     fig, ax = plt.subplots(figsize = (8, 8), dpi = 300)
     image = image.flatten()
     # Statistics
@@ -424,7 +467,7 @@ def chargeDist(event_id, image, label, xlabel,  output_dir):
     charge_dir = output_dir / "Dist"
     charge_dir.mkdir(parents=True, exist_ok=True)
 
-    output_path = charge_dir /f"{event_id}_{xlabel}.png"
+    output_path = charge_dir /f"{event_id}_{label.replace(' ', '_')}.png"
     plt.savefig(output_path, bbox_inches = 'tight')
     plt.close(fig)
 
@@ -504,6 +547,12 @@ def plotLGHGPulseWithWindow(roi_data, cstop, offsets, skip_cell, geometry, globa
     plt.close(fig)
 
 
+def saveImages(event_index, roi_slice, cstop_slice, skip_cell_slice, offsets, geometry, pixel_map, gch, output_dir):
+    charge_image, time_image = imageGen(roi_slice, cstop_slice, skip_cell_slice, offsets, geometry)
+    
+    ch_image_LG, ch_image_HG = mapToPixels(geometry, charge_image, pixel_map, gch)
+    t_image_LG, t_image_HG = mapToPixels(geometry, time_image, pixel_map, gch)
+    return ch_image_LG, ch_image_HG, t_image_LG, t_image_HG
 
 
 def processEvent(event_index, roi_slice, cstop_slice, skip_cell_slice, offsets, geometry, pixel_map, gch, output_dir):
@@ -530,9 +579,11 @@ def processEvent(event_index, roi_slice, cstop_slice, skip_cell_slice, offsets, 
 #
     return {
             "event_id": event_index,
-            #"r1_image": r1_image,
+
             "image_LG": ch_image_LG,
-            "image_HG": ch_image_HG
+            "image_HG": ch_image_HG,
+            "time_LG": t_image_LG,
+            "time_HG": t_image_HG
      
             }       
     #return event_index

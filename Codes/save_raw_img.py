@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import numpy as np
 from config_loader import load_config
-from image_gen import saveImageHiRes, processEvent, plotLGHGPulseWithWindow, plotReferencePulses
+from image_gen import * #saveImageHiRes, processEvent, plotLGHGPulseWithWindow, plotReferencePulses, chargeDist
 from geometry import CameraLayout          
 from pathlib import Path
 import h5py
@@ -9,17 +9,26 @@ import cmyt
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import traceback
 import os
-import tqdm
+from tqdm import tqdm
+import argparse
 config = load_config("config/config.yaml")
 geometry = CameraLayout(config)
-pixel_map = geometry.loadPixelMap(f"geometry/{geometry.camera_name}")
+pixel_map = geometry.loadPixelMap(f"geometry/{geometry.camera_name}.h5")
 offset = np.loadtxt(Path(config["calib"]["drsoffset"]))
-def main(infile_name, output_dir, event_id_start = 1, event_id_end = None, save_lg = True, save_hg = True, save_arrTime = True, save_waveform = False, save_refPulse = False):
+def main(infile_name, output_dir, event_id_start = 1, event_id_end = None, save_lg = True, save_hg = True, save_arrTime = True, save_waveform = False, save_refPulse = False, save_charge_dist_LG = False, save_charge_dist_HG = False, save_time_dist = False):
     if not Path(infile_name).exists():
         print("H5 File not found! Please enter the correct file path")
         exit
     if (event_id_end == None) | (event_id_end == event_id_start):
         event_id_end = event_id_start + 1
+
+    if event_id_start > event_id_end:
+        try:
+            raise RuntimeError("Event start index > end index. Bruh (-_-)")
+        except RuntimeError as e:
+            print(f"RuntimeError: {e}")
+
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
     with h5py.File(infile_name, "r") as f:
         roi_all = f["adc/roi_data"]
         cstop_all = f["adc/cstop"]
@@ -68,15 +77,52 @@ def main(infile_name, output_dir, event_id_start = 1, event_id_end = None, save_
                     if save_hg:
                         saveImageHiRes(f"{evt}_HG", "Integrated Charge", result["image_HG"], output_dir, pixel_map, geometry)
                     if save_arrTime:
-                        saveImageHiRes(f"{evt}_time", "Arrival Time", result["t_image_HG"], output_dir, pixel_map, geometry, cmap='plasma')
+                        saveImageHiRes(f"{evt}_time", "Arrival Time", result["time_HG"], output_dir, pixel_map, geometry, cmap='plasma')
                     if save_waveform:
                         plotLGHGPulseWithWindow(roi_all[evt], cstop_all[evt], offset, skip_cell_all[evt], geometry, 2, event, output_dir)
                     if save_refPulse:
                         plotReferencePulses(event, roi_all[evt], geometry, output_dir)
+                    if save_charge_dist_LG:
+                        chargeDist(evt, result["image_LG"], "Charge Distribution LG", "Charge [pC]", output_dir )
+                    if save_charge_dist_HG:
+                        chargeDist(evt, result["image_HG"], "Charge Distribution HG", "Charge [pC]", output_dir )
+                    if save_time_dist:
+                        chargeDist(evt, result["time_HG"], "Arrival Time Distribution", "Time [ns]", output_dir )
                 except Exception as e:
                     print("Worker crashed:", e)
                     traceback.print_exc()
 
 
 if __name__ == "__main__":
-    main
+    parser = argparse.ArgumentParser(description="Generate event images and pulse profiles")
+
+    parser.add_argument("infile", type = str, help="H5 file path: ")
+    parser.add_argument("output_dir", type= str, help = "Output Directory: ")
+    parser.add_argument("--start", type = int, default = 1, help = "Start Event ID:")
+    parser.add_argument("--end", type = int, default = None, help = "End Event ID:")
+    parser.add_argument("--no-lg", action="store_true", help="Disable LG image saving")
+    parser.add_argument("--no-hg", action="store_true", help="Disable HG image saving")
+    parser.add_argument("--no-time", action="store_true", help="Disable arrival time images")
+    parser.add_argument("--waveform", action="store_true", help="Save waveform plots")
+    parser.add_argument("--refpulse", action="store_true", help="Save reference pulses")
+    parser.add_argument("--cdist-lg", action="store_true", help="Save LG charge distribution")
+    parser.add_argument("--cdist-hg", action="store_true", help="Save HG charge distribution")
+    parser.add_argument("--tdist", action="store_true", help="Save Arrival time distribution")
+
+    args = parser.parse_args()
+    
+    main(
+        infile_name = args.infile,
+        output_dir = Path(args.output_dir),
+        event_id_start = args.start,
+        event_id_end = args.end,
+        save_lg = not args.no_lg,
+        save_hg = not args.no_hg,
+        save_arrTime = not args.no_time,
+        save_waveform = args.waveform,
+        save_refPulse = args.refpulse,  
+        save_charge_dist_LG= args.cdist_lg,
+        save_charge_dist_HG= args.cdist_hg,
+        save_time_dist= args.tdist
+
+    )
