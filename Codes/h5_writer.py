@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import traceback
 import numpy as np
 from ctapipe.instrument import OpticsDescription

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 

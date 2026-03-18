@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import numpy as np
 import h5py
 import logging
@@ -19,6 +20,7 @@ class CameraLayout():
         self.N_GLOBAL_CH = self.N_PCM * self.N_DDB * self.N_CH_PER_DDB
         self.camera_name = cam["name"]
         self.roi = cam["readout"]["roi_samples"]
+
         
     
     def createPixelMap(self):

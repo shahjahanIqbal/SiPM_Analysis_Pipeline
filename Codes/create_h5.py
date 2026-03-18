@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import h5py
 import numpy as np
 from pathlib import Path
@@ -22,12 +23,9 @@ from ctapipe.instrument import (
     CameraGeometry,
     CameraReadout,
     CameraDescription,
-    TelescopeDescription,
     SubarrayDescription,
     OpticsDescription,
-    SubarrayDescription,
     TelescopeDescription,
-    OpticsDescription
 )
 from ctapipe.containers import (ArrayEventContainer, 
                                 SchedulingBlockContainer, 
@@ -39,22 +37,22 @@ from ctapipe.containers import (ArrayEventContainer,
 
 from ctapipe.instrument.camera.description import CameraDescription
 
-
+from ctapipe.instrument.camera import CameraGeometry, CameraReadout
 from config_loader import load_config
 from geometry import CameraLayout
-from config_loader import load_config
+
 from image_gen import processEvent
 
-
+from astropy import units as u
+import numpy as np
+from astropy.coordinates import EarthLocation
 
 config = load_config("config/config.yaml")
 geometry = CameraLayout(config)
 
 N_GLOBAL_CH = geometry.N_GLOBAL_CH
 n_samples = geometry.roi
-from astropy import units as u
-import numpy as np
-from astropy.coordinates import EarthLocation
+
 
 reference_location = EarthLocation(
     lat = 0 * u.deg,
@@ -62,7 +60,7 @@ reference_location = EarthLocation(
     height = 0 * u.m
 )
 
-
+# CHECK IF CAMERA GEOMETRY IS BUILT RIGHT
 def build_subarray(geometry):
 
     size = 22.1
@@ -110,8 +108,8 @@ def build_subarray(geometry):
         name="Optics",
         size_type="UNKNOWN",
         n_mirrors=1,
-        equivalent_focal_length=1*u.m,
-        effective_focal_length=1*u.m,
+        equivalent_focal_length=4*u.m,
+        effective_focal_length=4*u.m,
         mirror_area=1*u.m**2,
         n_mirror_tiles=1,
         reflector_shape="UNKNOWN"
@@ -250,7 +248,6 @@ with h5py.File(input_file, "r") as f:
                 tel = event.dl1.tel[1]
                 # Required by DataWriter
                 tel.is_valid = True
-                tel.parameters = {}
                 # ----- Telescope pointing (needed later by reconstructor) -----
                 #event.pointing.tel[1].azimuth = 0.0
                 #event.pointing.tel[1].altitude = 1.0
