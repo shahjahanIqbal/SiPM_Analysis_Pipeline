@@ -96,10 +96,10 @@ def main(infile_name, output_dir, event_id_start = 1, event_id_end = None, save_
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate event images and pulse profiles")
 
-    parser.add_argument("infile", type = str, help="H5 file path: ")
-    parser.add_argument("output_dir", type= str, help = "Output Directory: ")
-    parser.add_argument("--start", type = int, default = 1, help = "Start Event ID:")
-    parser.add_argument("--end", type = int, default = None, help = "End Event ID:")
+    parser.add_argument("infile", type = str, help="H5 file path")
+    parser.add_argument("output_dir", type= str, help = "Output Directory")
+    parser.add_argument("--start", type = int, default = 1, help = "Start Event ID")
+    parser.add_argument("--end", type = int, default = None, help = "End Event ID")
     parser.add_argument("--no-lg", action="store_true", help="Disable LG image saving")
     parser.add_argument("--no-hg", action="store_true", help="Disable HG image saving")
     parser.add_argument("--no-time", action="store_true", help="Disable arrival time images")

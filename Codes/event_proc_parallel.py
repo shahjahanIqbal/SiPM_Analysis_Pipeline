@@ -37,9 +37,11 @@ class EventProcessor():
     def setup(self):
         logging.info("Loading configuration")
         self.config = load_config(self.config_path)
-        print("Config loaded")
+        #print("Config loaded")
         logging.info("Initializing geometry")
         self.geometry = CameraLayout(self.config)
+
+        # Reading input file paths. It accepts either a path to a single evb file or a text file for batch processing
         self.evb_path = self.config["data"]["evbfilepath"]
 
         if not self.evb_path:
@@ -60,7 +62,7 @@ class EventProcessor():
             self.evb_files = [Path(self.evb_path)]
 
         
-        
+        # Setting up output directory for intermediate h5 file generation
         self.output_dir = Path(self.config["io"]["output"])
         if not self.output_dir.exists():
             self.output_dir.mkdir(exist_ok=True)
@@ -180,14 +182,16 @@ class EventProcessor():
                        
     def run(self):
         self.setup()
+        with open(Path(self.config["io"]["output"])/ f"output_files.txt", "a") as f:        
+            for evb in (self.evb_files):
+                logging.info(f"Processing {evb}")    
+                data = np.memmap(evb, dtype=np.uint32, mode = 'r')
+                registry = self.buildRegistry(data)
+                outfile_name = Path(evb).stem
 
-        for evb in (self.evb_files):
-            logging.info(f"Processing {evb}")    
-            data = np.memmap(evb, dtype=np.uint32, mode = 'r')
-            registry = self.buildRegistry(data)
-            outfile_name = Path(evb).stem
-            
-            self.extractEventsParallel(data, registry, outfile_name)
+                self.extractEventsParallel(data, registry, outfile_name)
+                f.write(f"{Path(self.config['io']['output'])/ f'{outfile_name}.h5'}\n")
+        f.close()
     
 
 

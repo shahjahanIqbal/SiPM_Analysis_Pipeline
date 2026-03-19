@@ -47,6 +47,8 @@ from astropy import units as u
 import numpy as np
 from astropy.coordinates import EarthLocation
 
+import argparse
+
 config = load_config("config/config.yaml")
 geometry = CameraLayout(config)
 
@@ -191,70 +193,88 @@ offsets = np.loadtxt(config["calib"]["drsoffset"])
 
 gch = np.arange(geometry.N_GLOBAL_CH)
 
-input_file = "output/s0534+2201_339_flashCAL_14122025_2_EVBdata.h5"
+#input_file = "output/s0534+2201_339_flashCAL_14122025_2_EVBdata.h5"
+input_dir = Path(config["io"]["output"])
 output_file = "events_cta/dl1_ctapipe_ready.h5"
 
 Path(output_file).parent.mkdir(parents = True, exist_ok = True)
 
 subarray = build_subarray(geometry)
-
+output_dir = Path(config["io"]["output"])
 source = SyntheticSource(subarray=subarray)
+def main(input_file, output_dir):
+    
+    output_dir.mkdir(parents = True, exist_ok = True)
+    output_file = output_dir / f"{input_file.stem}.h5"
 
-with h5py.File(input_file, "r") as f:
+    with h5py.File(input_file, "r") as f:
 
-    roi_all = f["adc/roi_data"]
-    cstop_all = f["adc/cstop"]
-    skip_cell = f["adc/skip_cell"]
+        roi_all = f["adc/roi_data"]
+        cstop_all = f["adc/cstop"]
+        skip_cell = f["adc/skip_cell"]
 
-    n_events = roi_all.shape[0]
+        n_events = roi_all.shape[0]
 
-    with ProcessPoolExecutor() as executor:
+        with ProcessPoolExecutor() as executor:
 
-        futures = []
+            futures = []
 
-        for i in range(n_events):
+            for i in range(n_events):
 
-            futures.append(
-                executor.submit(
-                    processEvent,
-                    i,
-                    roi_all[i],
-                    cstop_all[i],
-                    skip_cell[i],
-                    offsets,
-                    geometry,
-                    pixel_map,
-                    gch,
-                    None
+                futures.append(
+                    executor.submit(
+                        processEvent,
+                        i,
+                        roi_all[i],
+                        cstop_all[i],
+                        skip_cell[i],
+                        offsets,
+                        geometry,
+                        pixel_map,
+                        gch,
+                        None
+                    )
                 )
-            )
 
-        with DataWriter(event_source=source, output_path=output_file, overwrite = True, write_dl1_images=True) as writer:
+            with DataWriter(event_source=source, output_path=output_file, overwrite = True, write_dl1_images=True) as writer:
 
-            for future in tqdm(as_completed(futures), total=n_events):
+                for future in tqdm(as_completed(futures), total=n_events):
 
-                result = future.result()
+                    result = future.result()
 
-                event = ArrayEventContainer()
+                    event = ArrayEventContainer()
 
-                # ----- Event index -----
-                event.index.obs_id = np.uint64(1)
-                event.index.event_id = np.uint64(result["event_id"])
+                    # ----- Event index -----
+                    event.index.obs_id = np.uint64(1)
+                    event.index.event_id = np.uint64(result["event_id"])
 
-                event.trigger.tels_with_trigger = [1]
-                tel_trigger = event.trigger.tel[1]
-                tel_trigger.time = 0.0
+                    event.trigger.tels_with_trigger = [1]
+                    tel_trigger = event.trigger.tel[1]
+                    tel_trigger.time = 0.0
 
-                tel = event.dl1.tel[1]
-                # Required by DataWriter
-                tel.is_valid = True
-                # ----- Telescope pointing (needed later by reconstructor) -----
-                #event.pointing.tel[1].azimuth = 0.0
-                #event.pointing.tel[1].altitude = 1.0
+                    tel = event.dl1.tel[1]
+                    # Required by DataWriter
+                    tel.is_valid = True
+                    # ----- Telescope pointing (needed later by reconstructor) -----
+                    #event.pointing.tel[1].azimuth = 0.0
+                    #event.pointing.tel[1].altitude = 1.0
 
-                tel.image = result["image_HG"].flatten().astype(np.float32)
-                tel.peak_time = np.zeros_like(tel.image)
-                tel.parameters = ImageParametersContainer()
+                    tel.image = result["image_HG"].flatten().astype(np.float32)
+                    tel.peak_time = np.zeros_like(tel.image)
+                    tel.parameters = ImageParametersContainer()
 
-                writer(event)
-PROV.finish_activity("dl1_write")                
+                    writer(event)
+    PROV.finish_activity("dl1_write")                
+
+if __name__ =="__main__":
+    parser = argparse.ArgumentParser(description="Generate event images and pulse profiles")
+    parser.add_argument("output_dir", default = "testing_batch_output", type= str, help = "Output directory")
+    
+    args = parser.parse_args()
+    input_files = np.loadtxt(input_dir/"output_files.txt", dtype = str)
+    for file in input_files:
+        print(f"Processing {file}")
+        main(
+            input_file = Path(file),
+            output_dir = Path(args.output_dir),
+        )
