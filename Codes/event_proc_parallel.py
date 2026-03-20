@@ -10,7 +10,7 @@ import os
 import h5py
 from config_loader import load_config
 from geometry import CameraLayout
-from registry_creator import fetchPacketIndices, build_event_registry
+from registry_creator import fetchPacketIndices, build_event_registry_parallel
 from data_extractor import dataExtractor
 from logging.handlers import RotatingFileHandler
 import datetime
@@ -39,7 +39,7 @@ class EventProcessor():
     def setup(self):
         logging.info("Loading configuration")
         self.config = load_config(self.config_path)
-        #print("Config loaded")
+        print("Config loaded")
         logging.info("Initializing geometry")
         self.geometry = CameraLayout(self.config)
 
@@ -52,7 +52,7 @@ class EventProcessor():
         
         if (self.evb_path.split('/')[-1].split('.')[-1] == 'txt'):
 
-            for evtfile in np.loadtxt(self.evb_path, dtype = str):
+            for evtfile in np.atleast_1d(np.loadtxt(self.evb_path, dtype=str)):
                 if not Path(evtfile).exists():
                     raise FileNotFoundError(f"{evtfile} file not found. Skipping...")
                     
@@ -72,13 +72,14 @@ class EventProcessor():
 
 
     def buildRegistry(self, data):
+        print("Building Registry")
         start_indices, end_indices = fetchPacketIndices( 
             data,
             self.START_FRAME,
             self.END_FRAME
         )
 
-        registry = build_event_registry(
+        registry = build_event_registry_parallel(
             data,
             start_indices,
             end_indices
@@ -87,6 +88,7 @@ class EventProcessor():
 
     
     def jobGenerator(self, registry, data):
+        print("Generating Jobs")
         for event_id, event_info in registry.items():
 
             packet_ranges = event_info["packets"]
@@ -111,6 +113,7 @@ class EventProcessor():
             yield (event_id, event_info_local, data_slice)
     
     def batchCreator(self, job, batch_size):
+        print("Creating Batches")
         batch = []
         for j in job:
             batch.append(j)
@@ -202,9 +205,11 @@ class EventProcessor():
                        
     def run(self):
         self.setup()
-        with open(Path(self.config["io"]["output"])/ f"output_files.txt", "a") as f:        
+        with open(Path(self.config["io"]["output"])/ f"output_files.txt", "a") as f:  
+            print("Config Opened")      
             for evb in (self.evb_files):
                 logging.info(f"Processing {evb}")    
+                print(f"Processing {evb}")
                 data = np.memmap(evb, dtype=np.uint32, mode = 'r')
                 registry = self.buildRegistry(data)
                 outfile_name = Path(evb).stem
