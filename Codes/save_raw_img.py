@@ -11,6 +11,13 @@ import traceback
 import os
 from tqdm import tqdm
 import argparse
+
+import matplotlib
+matplotlib.use('Agg')
+
+# Forcing QT to use wayland and quit whining -_-
+os.environ["QT_QPA_PLATFORM"] = "wayland"
+
 config = load_config("config/config.yaml")
 geometry = CameraLayout(config)
 pixel_map = geometry.loadPixelMap(f"geometry/{geometry.camera_name}.h5")
@@ -27,7 +34,7 @@ def main(infile_name, output_dir, event_id_start = 1, event_id_end = None, save_
             raise RuntimeError("Event start index > end index. Bruh (-_-)")
         except RuntimeError as e:
             print(f"RuntimeError: {e}")
-
+    output_dir = output_dir / f"{infile_name.split('/')[-1].split('.')[0]}"
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     with h5py.File(infile_name, "r") as f:
         roi_all = f["adc/roi_data"]
@@ -81,7 +88,7 @@ def main(infile_name, output_dir, event_id_start = 1, event_id_end = None, save_
                     if save_waveform:
                         plotLGHGPulseWithWindow(roi_all[evt], cstop_all[evt], offset, skip_cell_all[evt], geometry, 2, event, output_dir)
                     if save_refPulse:
-                        plotReferencePulses(event, roi_all[evt], geometry, output_dir)
+                        plotReferencePulses(evt, roi_all[evt], geometry, output_dir)
                     if save_charge_dist_LG:
                         chargeDist(evt, result["image_LG"], "Charge Distribution LG", "Charge [pC]", output_dir )
                     if save_charge_dist_HG:

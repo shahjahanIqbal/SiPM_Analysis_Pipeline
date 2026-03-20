@@ -264,7 +264,7 @@ def plotReferencePulses(event_id, roi_data, geometry, output_dir):
     Used for debugging purposes
     '''
 
-    ref_dir = output_dir / "ref_pulses"
+    ref_dir = output_dir / "ref_pulses" / f"Event_{event_id}"
     ref_dir.mkdir(parents=True, exist_ok=True)
 
     for gch in range(0, geometry.N_GLOBAL_CH, geometry.N_CH_PER_DDB):
@@ -305,7 +305,8 @@ def plotReferencePulses(event_id, roi_data, geometry, output_dir):
         ax.legend()
         ax.grid()
 
-        fname = ref_dir / f"evt{event_id}_refch{ref_ch}.png"
+        fname = ref_dir / f"refch_{ref_ch}.png"
+        fname.parent.mkdir(parents=True, exist_ok=True)
         plt.tight_layout()
         plt.savefig(fname)
         plt.close()
@@ -393,11 +394,12 @@ def saveImageHiRes(event_id, label, image, output_dir, pixel_map, geometry, cmap
             #    color='white'
             #)
 
-    ax.set_title(f"Event {event_id}")
+    ax.set_title(f"Event {event_id.replace('_', ' ' )}")
     ax.set_xticks([])
     ax.set_yticks([])
 
-    output_path = output_dir / f"{event_id}.png"
+    output_path = output_dir /f"{label.replace(' ', '_')}"/ f"{event_id}.png"
+    output_path.parent.mkdir(parents = True, exist_ok=True)
     plt.savefig(output_path, bbox_inches='tight')
     plt.close(fig)
 
@@ -423,7 +425,7 @@ def chargeDist(event_id, image, label, xlabel,  output_dir):
         f"Std  = {std_val:.2f}   MAD  = {mad_val:.2f}\n"
         f"Min  = {min_val:.2f}\n"
         f"Max  = {max_val:.2f}\n"
-        f""
+        
     )
 
     
