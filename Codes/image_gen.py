@@ -501,11 +501,11 @@ def plotLGHGPulseWithWindow(roi_data, cstop, offsets, skip_cell, geometry, globa
     #ax.axvline(arrival_time_lg, linestyle="-", color='blue', alpha=0.7)
     ax.plot(time_hg, pulse_hg, label=f"HG pcm = {pcm_id},  ddb  = {ddb_id} ch = {lch_id_hg}", color = 'red')
     #ax.axvline(arrival_time_hg, linestyle="-", color='red', alpha=0.7)
-
-    ax.axvline(time_lg[start_hg], linestyle="--", color='red', alpha=0.3)
-    ax.axvline(time_lg[end_hg], linestyle="--", color='red', alpha=0.3)
-    ax.axvline(time_lg[start_lg], linestyle="--", color='blue', alpha=0.3)
-    ax.axvline(time_lg[end_lg], linestyle="--", color='blue', alpha=0.3)
+    roi_len = len(time_lg)
+    ax.axvline(time_lg[min(start_hg, roi_len - 1)], linestyle="--", color='red',  alpha=0.3)
+    ax.axvline(time_lg[min(end_hg,   roi_len - 1)], linestyle="--", color='red',  alpha=0.3)
+    ax.axvline(time_lg[min(start_lg, roi_len - 1)], linestyle="--", color='blue', alpha=0.3)
+    ax.axvline(time_lg[min(end_lg,   roi_len - 1)], linestyle="--", color='blue', alpha=0.3)
     mask_lg = (time_lg < time_lg[start_lg]) | (time_lg > time_lg[end_lg])
     mask_hg = (time_hg < time_hg[start_hg]) | (time_hg > time_hg[end_hg])
     ax.axhline(np.median(pulse_lg[mask_lg]), linestyle=":", color='blue', alpha=0.7, label = f"Baseline Median {np.median(pulse_lg[mask_lg]):.2f} mV")
@@ -519,14 +519,33 @@ def plotLGHGPulseWithWindow(roi_data, cstop, offsets, skip_cell, geometry, globa
     ax.legend()
     ax.grid(True)
 
-    filename = f"evt{event_index}_pcm{pcm_id}_ddb{ddb_id}_ch{lch_id_lg}_{lch_id_hg}.png"
-    pulse_dir = output_dir / "pulse_profiles"
+    filename = f"pcm{pcm_id}_ddb{ddb_id}_ch{lch_id_lg}_{lch_id_hg}.png"
+    pulse_dir = output_dir / f"Event_{event_index}"
     pulse_dir.mkdir(parents=True, exist_ok=True)
     output_path = pulse_dir / filename
     plt.tight_layout()
     plt.savefig(output_path)
     plt.close(fig)
 
+def plotAllPulses(roi_data, cstop, offsets, skip_cell, geometry, event_index, output_dir):
+    """
+    Plots LG/HG pulse pairs for all channels in an event.
+    One figure per HG/LG pair, saved as {Event_Index}/pcm{P}_ddb{D}_ch{lg}_{hg}.png
+    """
+ 
+    for ddb_start in range(0, geometry.N_GLOBAL_CH, geometry.N_CH_PER_DDB):
+        for i in range(1, geometry.N_CH_PER_DDB - 1, 2):   # 1, 3, 5, 7
+            hg_global_ch = ddb_start + i
+            plotLGHGPulseWithWindow(
+                roi_data,
+                cstop,
+                offsets,
+                skip_cell,
+                geometry,
+                hg_global_ch,
+                event_index,
+                output_dir
+            )
 
 def saveImages(event_index, roi_slice, cstop_slice, skip_cell_slice, offsets, geometry, pixel_map, gch, output_dir):
     charge_image, time_image, _ = imageGen(roi_slice, cstop_slice, skip_cell_slice, offsets, geometry)

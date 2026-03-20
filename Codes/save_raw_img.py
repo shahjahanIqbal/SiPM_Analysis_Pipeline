@@ -86,7 +86,7 @@ def main(infile_name, output_dir, event_id_start = 1, event_id_end = None, save_
                     if save_arrTime:
                         saveImageHiRes(f"{evt}_time", "Arrival Time", result["time_HG"], output_dir, pixel_map, geometry, cmap='plasma')
                     if save_waveform:
-                        plotLGHGPulseWithWindow(roi_all[evt], cstop_all[evt], offset, skip_cell_all[evt], geometry, 2, event, output_dir)
+                        plotAllPulses(roi_all[evt], cstop_all[evt], offset, skip_cell_all[evt], geometry, evt, output_dir)
                     if save_refPulse:
                         plotReferencePulses(evt, roi_all[evt], geometry, output_dir)
                     if save_charge_dist_LG:

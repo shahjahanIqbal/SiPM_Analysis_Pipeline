@@ -25,6 +25,10 @@ DRS_OFFSET/
 geometry/
 OBS_INFO/
 output/
+backup_outputs/
+backup_codes/
+testing_batch_op/
+test_output_s0534+2201_455_flashCAL_21012026_2/
 
 # Editor junk
 .~lock.*

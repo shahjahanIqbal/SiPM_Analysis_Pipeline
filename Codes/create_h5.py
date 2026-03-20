@@ -49,17 +49,24 @@ from astropy.coordinates import EarthLocation
 
 import argparse
 
+import json
+
+
+
 config = load_config("config/config.yaml")
 geometry = CameraLayout(config)
+evb_filepath = config["data"]["evbfilepath"]
+
+ 
 
 N_GLOBAL_CH = geometry.N_GLOBAL_CH
 n_samples = geometry.roi
 
 
 reference_location = EarthLocation(
-    lat = 0 * u.deg,
-    lon = 0 * u.deg,
-    height = 0 * u.m
+    lat = 24.6 * u.deg,
+    lon = 72.7 * u.deg,
+    height = 1300 * u.m
 )
 
 # CHECK IF CAMERA GEOMETRY IS BUILT RIGHT
@@ -94,7 +101,7 @@ def build_subarray(geometry):
         name="SiPM",
         sampling_rate=1*u.GHz,
         reference_pulse_shape=reference_pulse,
-        reference_pulse_sample_width=1*u.ns,
+        reference_pulse_sample_width=30*u.ns,
         n_channels=geometry.N_GLOBAL_CH,
         n_pixels=256,
         n_samples=geometry.roi
@@ -113,7 +120,7 @@ def build_subarray(geometry):
         equivalent_focal_length=4*u.m,
         effective_focal_length=4*u.m,
         mirror_area=1*u.m**2,
-        n_mirror_tiles=1,
+        n_mirror_tiles=34,
         reflector_shape="UNKNOWN"
     )
 
@@ -137,6 +144,7 @@ def build_subarray(geometry):
 
 N_GLOBAL_CH = geometry.N_GLOBAL_CH
 n_samples = geometry.roi
+
 PROV = Provenance()
 PROV.start_activity("dl1_write")
 class SyntheticSource(EventSource):
@@ -188,24 +196,27 @@ class SyntheticSource(EventSource):
 
 
 pixel_map = geometry.loadPixelMap(f"geometry/{geometry.camera_name}.h5")
-#offsets = np.loadtxt("../DRS_OFFSET/offsetcal_January13012026.txt")
+
 offsets = np.loadtxt(config["calib"]["drsoffset"])
 
 gch = np.arange(geometry.N_GLOBAL_CH)
 
-#input_file = "output/s0534+2201_339_flashCAL_14122025_2_EVBdata.h5"
-input_dir = Path(config["io"]["output"])
-output_file = "events_cta/dl1_ctapipe_ready.h5"
 
-Path(output_file).parent.mkdir(parents = True, exist_ok = True)
+input_dir = Path(config["io"]["output"])
+#output_file = "events_cta/dl1_ctapipe_ready.h5"
+
+#Path(output_file).parent.mkdir(parents = True, exist_ok = True)
 
 subarray = build_subarray(geometry)
-output_dir = Path(config["io"]["output"])
+#output_dir = Path(config["io"]["output"])
 source = SyntheticSource(subarray=subarray)
-def main(input_file, output_dir):
+def main(input_file, output_dir, json_file):
     
     output_dir.mkdir(parents = True, exist_ok = True)
     output_file = output_dir / f"{input_file.stem}.h5"
+    with open(json_path) as jf:
+        json_file = json.load(jf)
+    
 
     with h5py.File(input_file, "r") as f:
 
@@ -245,7 +256,7 @@ def main(input_file, output_dir):
                     event = ArrayEventContainer()
 
                     # ----- Event index -----
-                    event.index.obs_id = np.uint64(1)
+                    event.index.obs_id = json_file["Run_no"]
                     event.index.event_id = np.uint64(result["event_id"])
 
                     event.trigger.tels_with_trigger = [1]
@@ -267,15 +278,37 @@ def main(input_file, output_dir):
                     writer(event)
     PROV.finish_activity("dl1_write")                
 
+def jsonFinder(h5_path: Path, json_dir: Path) -> Path:
+    """
+    Returns the JSON path whose stem matches the H5 stem.
+    Raises FileNotFoundError clearly if it doesn't exist.
+    """
+    json_path = json_dir / f"{h5_path.stem}.json"
+    if not json_path.exists():
+        raise FileNotFoundError(
+            f"Missing JSON for {h5_path.name}: expected {json_path}"
+        )
+    return json_path
+
 if __name__ =="__main__":
     parser = argparse.ArgumentParser(description="Generate event images and pulse profiles")
     parser.add_argument("output_dir", default = "testing_batch_output", type= str, help = "Output directory")
-    
+    parser.add_argument("json_dir", default ="OBS_INFO", type = str, help = "Directory path to the jsons")
     args = parser.parse_args()
     input_files = np.loadtxt(input_dir/"output_files.txt", dtype = str)
-    for file in input_files:
+    
+    for file in np.atleast_1d(input_files):
+        h5_file = Path(file)
+        try:
+            json_path = jsonFinder(h5_file, json_dir = Path(args.json_dir))
+        except FileNotFoundError as e:
+            #logging.error(e)
+            print(f"Skipping {h5_file}")
+            continue
+
         print(f"Processing {file}")
         main(
-            input_file = Path(file),
+            input_file = h5_file,
             output_dir = Path(args.output_dir),
+            json_file = Path(json_path)
         )
