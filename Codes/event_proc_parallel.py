@@ -20,6 +20,8 @@ from tqdm import tqdm
 
 
 class EventProcessor():
+    batch_size= 5000
+
     START_FRAME = 0xFBDA
     END_FRAME   = 0xEDAC
 
@@ -50,7 +52,7 @@ class EventProcessor():
         
         if (self.evb_path.split('/')[-1].split('.')[-1] == 'txt'):
 
-            for evtfile in np.loadtxt(self.evb_path, dtype = str):
+            for evtfile in np.loadtxt(self.evb_path, dtype = str):Config loaded
                 if not Path(evtfile).exists():
                     raise FileNotFoundError(f"{evtfile} file not found. Skipping...")
                     
@@ -83,43 +85,51 @@ class EventProcessor():
         )
         return registry
 
-
-    def extractEventsParallel(self, data, registry, outfile_name):
-
-        logging.info("Preparing event jobs")
-
-        ROI = self.config["camera_geometry"]["readout"]["roi_samples"]
-
-        jobs = []
-        
     
-        # ---------------- Build Jobs ----------------
+    def jobGenerator(self, registry, data):
         for event_id, event_info in registry.items():
+
             packet_ranges = event_info["packets"]
             if not packet_ranges:
                 continue
+
             start = min(si for si, _ in packet_ranges)
             end   = max(ei for _, ei in packet_ranges)
+
             data_slice = data[start:end+1]
+
             adjusted_packets = [
                 (si - start, ei - start)
                 for si, ei in packet_ranges
             ]
+
             event_info_local = {
                 "packets": adjusted_packets,
                 "quality": event_info["quality"]
             }
-            jobs.append((event_id, event_info_local, data_slice)) #DO NOT CREATE ARRAY COPIES OF DATASLICE, PASS self.data AND INDICES TO SAVE MEMORY
 
-        logging.info(f"Submitting {len(jobs)} events to workers")
+            yield (event_id, event_info_local, data_slice)
+    
+    def batchCreator(self, job, batch_size):
+        batch = []
+        for j in job:
+            batch.append(j)
+            if len(batch) == batch_size:
+                yield batch
+                batch = []
+        if batch:
+            yield batch
 
-        # ---------------- Parallel Execution ----------------
+    def extractEventsParallel(self, data, registry, outfile_name):
+
+
+        ROI = self.config["camera_geometry"]["readout"]["roi_samples"]
         
-
-        # ---------------- Write HDF5 ----------------
+        
         N_GLOBAL_CH = self.geometry.N_GLOBAL_CH
 
-        
+        # ---------------- Write HDF5 ----------------#
+
         with h5py.File(self.output_dir / f"{outfile_name}.h5", "w") as h5f:
             nevents = len(registry)
             d_event = h5f.create_dataset("events/event_id", (nevents,), dtype="i4")
@@ -150,33 +160,43 @@ class EventProcessor():
                 (nevents,),
                 dtype="i2"
             )
+
+             
+
             with ProcessPoolExecutor(max_workers= max(1, os.cpu_count() - 1)) as executor:
-                futures = [
-                    executor.submit(
-                        dataExtractor,
-                        event_id,
-                        event_info,
-                        data_slice,
-                        self.geometry,
-                        ROI
-                    )
-                    for event_id, event_info, data_slice in jobs
-                ]
-                for future in tqdm(as_completed(futures),
-                                   total=len(futures),
-                                   desc="Processing events",
-                                   unit="event"):
-                    try:
-                        result = future.result()
-                        idx = result["event_id"] 
-                        d_event[idx] = result["event_number"]
-                        d_adc[idx] = result["adc"]
-                        d_cstop[idx] = result["cstop"]
-                        d_skip_cell[idx] = result["skip_cell"]
-                        d_qual[idx] = result["quality"] 
-                        d_roi_cell[idx] = result["roi_cell"]
-                    except Exception as e:
-                        logging.error(f"Worker crashed: {e}")
+                job_iterator = self.jobGenerator(registry, data)
+
+                for batch in self.batchCreator(job_iterator, self.batch_size):
+                    futures = []
+                    
+                    for event_id, event_info, data_slice in batch:
+                        futures.append(
+                            executor.submit(
+                            dataExtractor,
+                            event_id,
+                            event_info,
+                            data_slice,
+                            self.geometry,
+                            ROI
+                            )
+                        )
+
+
+                    for future in tqdm(as_completed(futures),
+                                       total=len(futures),
+                                       desc="Processing events",
+                                       unit="event"):
+                        try:
+                            result = future.result()
+                            idx = result["event_id"] 
+                            d_event[idx] = result["event_number"]
+                            d_adc[idx] = result["adc"]
+                            d_cstop[idx] = result["cstop"]
+                            d_skip_cell[idx] = result["skip_cell"]
+                            d_qual[idx] = result["quality"] 
+                            d_roi_cell[idx] = result["roi_cell"]
+                        except Exception as e:
+                            logging.error(f"Worker crashed: {e}")
             logging.info("Parallel extraction complete")
           
                        
