@@ -255,12 +255,13 @@ def main(input_file, output_dir):
                     tel = event.dl1.tel[1]
                     # Required by DataWriter
                     tel.is_valid = True
-                    # ----- Telescope pointing (needed later by reconstructor) -----
-                    #event.pointing.tel[1].azimuth = 0.0
-                    #event.pointing.tel[1].altitude = 1.0
 
-                    tel.image = result["image_HG"].flatten().astype(np.float32)
-                    tel.peak_time = np.zeros_like(tel.image)
+                    if np.any(result["saturation_mask"]):
+                        tel.image = result["image_LG"].flatten.astype(np.float32)
+                    else:
+                        tel.image = result["image_HG"].flatten().astype(np.float32)
+                    
+                    tel.peak_time = result["time_HG"].flatten().astype(np.float32)
                     tel.parameters = ImageParametersContainer()
 
                     writer(event)

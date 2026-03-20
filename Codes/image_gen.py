@@ -94,8 +94,9 @@ def adcTomV(adc, cstop, skip_cell, offsets, peak_pos = None): # offsets must be 
     #print(f"Baseline correction mean (mV) {np.mean(pulse_mV[baseline_mask])}, median {np.median(pulse_mV[baseline_mask])}")
     #print(f"Baseline correction: {1000 / 16384 * baseline_corr}")S
     # DRS offset correction
-    
-
+    saturation_flag = False
+    if np.any(pulse_mV[start:end] > 1000): #Check for saturation
+        saturation_flag = True
     #cstop = 980
     time = (peak_x + cstop) # + skip_cell ) 
     
@@ -112,7 +113,7 @@ def adcTomV(adc, cstop, skip_cell, offsets, peak_pos = None): # offsets must be 
     #else:
     # pulse_mV = np.zeros_like(pulse_mV) 
 
-
+    
 
     for i, t in enumerate(time):
             pulse_mV[i] = pulse_mV[i] + offsets[t%1024] if offsets is not None else pulse_mV[i]
@@ -124,7 +125,7 @@ def adcTomV(adc, cstop, skip_cell, offsets, peak_pos = None): # offsets must be 
     #baseline_corr = np.median(pulse_mV[baseline_mask]) if len(baseline_mask) > 0 else 0
     pulse_mV -= baseline_corr
     #print(f"Pulse: {pulse_mV}")
-    return (pulse_mV, time, arrival_time, start, end)
+    return (pulse_mV, time, arrival_time, start, end, saturation_flag)
 
 
 
@@ -202,21 +203,20 @@ def imageGen(roi_data, cstop, skip_cell, offsets, geometry):
     Returns the Charge and Arrival Time data for each channel which will be used to generate the LG, HG and Arrival Time images
     '''
     
-    adc_saturation = 16383 # 14 bit ADC saturation level
-    
     #mask = (glob_ch_indices % geometry.N_CH_PER_DDB != geometry.N_CH_PER_DDB - 1)
     #glob_ch_indices = glob_ch_indices[mask]
     #glob_ref_ch_indices = glob_ch_indices[~mask]
     
     charge_image = np.zeros(geometry.N_GLOBAL_CH)
     time_image = np.zeros(geometry.N_GLOBAL_CH)
+    saturation_mask = np.zeros(geometry.N_GLOBAL_CH) #Dont really need masks for LG Channels. Will optimize later
     
     for gch in range(0, geometry.N_GLOBAL_CH, geometry.N_CH_PER_DDB):
                 
         ref_data = roi_data[gch + geometry.N_CH_PER_DDB - 1]
         #arrival_time_ref = peakFinder(ref_data)
         #ref_time = arrival_time_ref
-        ref_data_mv, _, arrival_time_ref, _, _ = adcTomV(ref_data, 0, 0, None)
+        ref_data_mv, _, arrival_time_ref, _, _,_ = adcTomV(ref_data, 0, 0, None)
         ref_time = edgeDetector(ref_data_mv, arrival_time_ref)
         block_size = 1024
 
@@ -228,56 +228,35 @@ def imageGen(roi_data, cstop, skip_cell, offsets, geometry):
             cstop_val_lg = cstop[gch + i - 1]
             skip_cell_val_hg = skip_cell[gch + i]
             skip_cell_val_lg = skip_cell[gch + i - 1]
+             
             block_size = 1024
-            if np.any(adc_pulse_hg >= adc_saturation): 
-                
-                # LOGIC IS NOT ROBUST AS RANDOM SPIKES CAN TRIGGER THE SATURATION CONDITION. MUST CONSIDER PULSE WIDTH OR OTHER FACTORS
-                # MAYBE LOOK FOR SATURATION AFTER SMOOTHING ADC AND CONVERTING TO mV. RETURN A SATURATION FLAG AND IMPLEMENT CONDITIONAL STATEMENT 
-                # DURING ASSIGNMENT TO ARRAY
 
-                #print("Saturation")
-                lch_id_lg, ddb_id_lg, pcm_id_lg = geometry.local_channel_id(gch + i - 1) # Wont really need the lg ddb and pcm but just to be safe
-                #print(lch_id_lg, ddb_id_lg, pcm_id_lg)
-                #print(f"HG channel {gch} saturated. Using LG for charge calculation.")
-                drs_offset_time_lg = block_size * (pcm_id_lg * geometry.N_DDB + ddb_id_lg)
-                drs_offset_slice_lg = offsets[drs_offset_time_lg: drs_offset_time_lg + block_size, lch_id_lg + 1] # +1 because first column DRS capacitor index
-
-
-
-                pulse_lg, time, arrival_time_lg, start, end = adcTomV(adc_pulse_lg, cstop_val_lg, skip_cell_val_lg, drs_offset_slice_lg)
-
-                charge_lg = chargePerPixel(time, pulse_lg, start, end)
-                charge_image[gch + i] = 0
-                charge_image[gch + i - 1] = charge_lg
-                time_image[gch + i - 1] = arrival_time_lg
-                time_image[gch + i] = 0
+            # If HG is not saturated, use it for charge calculation
+            lch_id_hg, ddb_id_hg, pcm_id_hg = geometry.local_channel_id(gch + i)
+            lch_id_lg, ddb_id_lg, pcm_id_lg = geometry.local_channel_id(gch + i - 1) 
             
-            else:
-                # If HG is not saturated, use it for charge calculation
-                lch_id_hg, ddb_id_hg, pcm_id_hg = geometry.local_channel_id(gch + i)
-                lch_id_lg, ddb_id_lg, pcm_id_lg = geometry.local_channel_id(gch + i - 1) 
+            drs_offset_time_hg = block_size * (pcm_id_hg * geometry.N_DDB + ddb_id_hg)
+            drs_offset_time_lg = block_size * (pcm_id_lg * geometry.N_DDB + ddb_id_lg)
+            drs_offset_slice_hg = offsets[drs_offset_time_hg: drs_offset_time_hg + block_size, lch_id_hg + 1] # +1 because first column DRS capacitor index
+            drs_offset_slice_lg = offsets[drs_offset_time_lg: drs_offset_time_lg + block_size, lch_id_lg + 1]
+            
+            peak_pos = peakFinder(adc_pulse_hg)
+            pulse_hg, time, arrival_time_hg, start, end, sat_flag_hg = adcTomV(adc_pulse_hg, cstop_val_hg, skip_cell_val_hg, drs_offset_slice_hg)
+            pulse_lg, time, arrival_time_lg, start, end, sat_flag_lg = adcTomV(adc_pulse_lg, cstop_val_lg, skip_cell_val_lg, drs_offset_slice_lg, peak_pos)
+            
+            charge_hg = chargePerPixel(time, pulse_hg, start, end)
+            charge_lg = chargePerPixel(time, pulse_lg, start, end)
+            charge_image[gch + i] = charge_hg
+            charge_image[gch + i - 1] = charge_lg
+            time_image[gch + i] = arrival_time_hg
+            time_image[gch + i - 1] = arrival_time_lg
 
-                drs_offset_time_hg = block_size * (pcm_id_hg * geometry.N_DDB + ddb_id_hg)
-                drs_offset_time_lg = block_size * (pcm_id_lg * geometry.N_DDB + ddb_id_lg)
-
-                drs_offset_slice_hg = offsets[drs_offset_time_hg: drs_offset_time_hg + block_size, lch_id_hg + 1] # +1 because first column DRS capacitor index
-                drs_offset_slice_lg = offsets[drs_offset_time_lg: drs_offset_time_lg + block_size, lch_id_lg + 1]
-                peak_pos = peakFinder(adc_pulse_hg)
-                pulse_hg, time, arrival_time_hg, start, end = adcTomV(adc_pulse_hg, cstop_val_hg, skip_cell_val_hg, drs_offset_slice_hg)
-                pulse_lg, time, arrival_time_lg, start, end = adcTomV(adc_pulse_lg, cstop_val_lg, skip_cell_val_lg, drs_offset_slice_lg, peak_pos)
-
-                charge_hg = chargePerPixel(time, pulse_hg, start, end)
-                charge_lg = chargePerPixel(time, pulse_lg, start, end)
-
-                charge_image[gch + i] = charge_hg
-                charge_image[gch + i - 1] = charge_lg
-
-                time_image[gch + i] = arrival_time_hg
-                time_image[gch + i - 1] = arrival_time_lg
+            saturation_mask[gch + i] = sat_flag_hg
+            saturation_mask[gch + i - 1] = sat_flag_lg
             
         time_image[gch:gch+geometry.N_CH_PER_DDB] =np.abs(time_image[gch:gch+geometry.N_CH_PER_DDB] -  ref_time)
 
-    return charge_image, time_image
+    return charge_image, time_image, saturation_mask
 
 def plotReferencePulses(event_id, roi_data, geometry, output_dir):
     '''
@@ -299,7 +278,7 @@ def plotReferencePulses(event_id, roi_data, geometry, output_dir):
         # same logic as imageGen
         
         edge = edgeDetector(ref_pulse, peak_pos)
-        ref_pulse, _, _, _, _ = adcTomV(roi_data[ref_ch], cstop=0, skip_cell=0, offsets=None)
+        ref_pulse, _, _, _, _,_ = adcTomV(roi_data[ref_ch], cstop=0, skip_cell=0, offsets=None)
         x = np.arange(len(ref_pulse))
         
 
@@ -403,7 +382,7 @@ def saveImageHiRes(event_id, label, image, output_dir, pixel_map, geometry, cmap
                 color='white'
             )
 
-            charge = image[i, j]
+            #charge = image[i, j]
 
             #ax.text(
             #    j, i,
@@ -508,12 +487,12 @@ def plotLGHGPulseWithWindow(roi_data, cstop, offsets, skip_cell, geometry, globa
     drs_offset_slice_hg = offsets[drs_offset_time_hg: drs_offset_time_hg + block_size, lch_id_hg + 1]
     
     if np.any(adc_pulse_hg >= 16383):
-        pulse_lg, time_lg, arrival_time_lg, start_lg, end_lg = adcTomV(adc_pulse_lg, cstop_val_lg, skip_cell_val_lg, drs_offset_slice_lg)
-        pulse_hg, time_hg, arrival_time_hg, start_hg, end_hg = adcTomV(adc_pulse_hg, cstop_val_hg, skip_cell_val_hg, drs_offset_slice_hg)
+        pulse_lg, time_lg, arrival_time_lg, start_lg, end_lg,_ = adcTomV(adc_pulse_lg, cstop_val_lg, skip_cell_val_lg, drs_offset_slice_lg)
+        pulse_hg, time_hg, arrival_time_hg, start_hg, end_hg,_ = adcTomV(adc_pulse_hg, cstop_val_hg, skip_cell_val_hg, drs_offset_slice_hg)
     else:
         hg_peak = peakFinder(adc_pulse_hg)
-        pulse_lg, time_lg, arrival_time_lg, start_lg, end_lg = adcTomV(adc_pulse_lg, cstop_val_lg, skip_cell_val_lg, drs_offset_slice_lg, peak_pos = hg_peak)
-        pulse_hg, time_hg, arrival_time_hg, start_hg, end_hg = adcTomV(adc_pulse_hg, cstop_val_hg, skip_cell_val_hg, drs_offset_slice_hg, peak_pos = hg_peak)
+        pulse_lg, time_lg, arrival_time_lg, start_lg, end_lg,_ = adcTomV(adc_pulse_lg, cstop_val_lg, skip_cell_val_lg, drs_offset_slice_lg, peak_pos = hg_peak)
+        pulse_hg, time_hg, arrival_time_hg, start_hg, end_hg,_ = adcTomV(adc_pulse_hg, cstop_val_hg, skip_cell_val_hg, drs_offset_slice_hg, peak_pos = hg_peak)
     
     # Plot waveform
     ax.plot(time_lg, pulse_lg, label=f"LG pcm = {pcm_id},  ddb  = {ddb_id} ch = {lch_id_lg}", color = 'blue')
@@ -548,7 +527,7 @@ def plotLGHGPulseWithWindow(roi_data, cstop, offsets, skip_cell, geometry, globa
 
 
 def saveImages(event_index, roi_slice, cstop_slice, skip_cell_slice, offsets, geometry, pixel_map, gch, output_dir):
-    charge_image, time_image = imageGen(roi_slice, cstop_slice, skip_cell_slice, offsets, geometry)
+    charge_image, time_image, _ = imageGen(roi_slice, cstop_slice, skip_cell_slice, offsets, geometry)
     
     ch_image_LG, ch_image_HG = mapToPixels(geometry, charge_image, pixel_map, gch)
     t_image_LG, t_image_HG = mapToPixels(geometry, time_image, pixel_map, gch)
@@ -557,10 +536,11 @@ def saveImages(event_index, roi_slice, cstop_slice, skip_cell_slice, offsets, ge
 
 def processEvent(event_index, roi_slice, cstop_slice, skip_cell_slice, offsets, geometry, pixel_map, gch, output_dir):
     #print(event_index)
-    charge_image, time_image = imageGen(roi_slice, cstop_slice, skip_cell_slice, offsets, geometry)
+    charge_image, time_image, sat_mask = imageGen(roi_slice, cstop_slice, skip_cell_slice, offsets, geometry)
     
     ch_image_LG, ch_image_HG = mapToPixels(geometry, charge_image, pixel_map, gch)
-    t_image_LG, t_image_HG = mapToPixels(geometry, time_image, pixel_map, gch)
+    _, t_image_HG = mapToPixels(geometry, time_image, pixel_map, gch)
+    _, satmask_HG = mapToPixels(geometry, sat_mask, pixel_map, gch)
     
     # Save preview only (raw save if needed)
     #saveImage(f"{output_dir}/{event_index}_LG", image_LG)
@@ -579,12 +559,11 @@ def processEvent(event_index, roi_slice, cstop_slice, skip_cell_slice, offsets, 
 #
     return {
             "event_id": event_index,
-
             "image_LG": ch_image_LG,
             "image_HG": ch_image_HG,
-            "time_LG": t_image_LG,
-            "time_HG": t_image_HG
-     
+            #"time_LG": t_image_LG,
+            "time_HG": t_image_HG,
+            "saturation_mask": satmask_HG
             }       
     #return event_index
 
