@@ -52,7 +52,7 @@ class EventProcessor():
         
         if (self.evb_path.split('/')[-1].split('.')[-1] == 'txt'):
 
-            for evtfile in np.loadtxt(self.evb_path, dtype = str):Config loaded
+            for evtfile in np.loadtxt(self.evb_path, dtype = str):
                 if not Path(evtfile).exists():
                     raise FileNotFoundError(f"{evtfile} file not found. Skipping...")
                     
