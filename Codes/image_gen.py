@@ -1,26 +1,39 @@
 #!/usr/bin/env python3
 import numpy as np
-#import traceback
 import h5py
 from pathlib import Path
 import logging
 from scipy.signal import savgol_filter
 import matplotlib.pyplot as plt
+from matplotlib.offsetbox import AnchoredText
 import numpy as np
 import tifffile as tiff
 from config_loader import load_config
 from geometry import CameraLayout
-#from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 import cmyt
-
 import os
+
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 config = load_config("config/config.yaml")
-#offset_filepath = Path("../DRS_OFFSET/all_cdm_ddb_drsoffsets_fro_09112024_1.cofsm")
-#offset_filepath = Path("../DRS_OFFSET/offsetcal_January13012026.txt")
+
+# Plot Color Definitions
+
+BG        = "#ffffff"
+# Main plot colors
+PLOT1       = "#236E62"
+PLOT1_SEC   = "#97F3B1"
+PLOT2 = "#0067ae"
+PLOT3 = "#e77e51"
+VLINE1    = "#ffa17a"
+VLINE2    = "#43658d"
+VLINE3    = "#213245"
+TEXT    = "#232324"
+BOX_BG  = "#afccc6"
+GRID      = "#c0cdd4"
+
 offset_filepath = Path(config["calib"]["drsoffset"])
-adc_data_path = Path("output/s0534+2201_339_flashCAL_14122025_2_EVBdata.h5")
+#adc_data_path = Path("output/s0534+2201_339_flashCAL_14122025_2_EVBdata.h5")
 
 # Validate file paths for DRS Offsets and ADC data
 
@@ -28,13 +41,12 @@ if not offset_filepath.exists():
     logging.error(f"DRS OFFSET file missing! Please ensure the offset correction files are present in the directory {offset_filepath}")
     exit
 
-elif not adc_data_path.exists():
+'''elif not adc_data_path.exists():
     logging.error(f"Output file not found in the directory {adc_data_path}. Make sure the event extraction is done first or check the directory path")
     exit
+'''
 
 
-
-#---------------------------------------------|Gaussian Function|---------------------------------------------#
 def gaussianFunction(x,  sigma = 5): # Width of a Cherenkov pulse is typically around 25 ns
     gauss = np.exp( - 0.5 * (x / sigma)**2)
     return gauss / np.sum(gauss)
@@ -45,25 +57,24 @@ KERNEL_X = np.arange(-35,36, 1)
 GAUSS = gaussianFunction(KERNEL_X) 
                                    
 
-#---------------------------------------------|Peak Fitting|---------------------------------------------#
+
 def peakFinder(adc, kernel = GAUSS):
     # Smoothing
     
-    smooth_pulse = savgol_filter(adc, 9, 3) # REASONING BEHIND THESE VALUES??
+    smooth_pulse = savgol_filter(adc, 9, 3) # Can these parameters be optimized?
                                                                       
     # Convolution
     # Peak must be searched within a buffer window of size >= width of the convolving function
     # The zero padding in the convolution results in peaks near the start and end
     conv = np.convolve(kernel, smooth_pulse, mode = 'same')
     peak_pos = np.argmax(conv)
-    #print(f"peakPos= {peak_pos}")
+
     
     return peak_pos
 
 
-#---------------------------------------------|ADC to mV Conversion|---------------------------------------------#
-def adcTomV(adc, cstop, skip_cell, offsets, peak_pos = None): # offsets must be sliced from the original file specifically for the channel              
-                                                              # peak_pos parameter will be None for HG and calculated, the same will be used for LG
+
+def adcTomV(adc, cstop, skip_cell, offsets, peak_pos = None): 
     '''
     Channel-wise conversion of adc data t0 mV. 
     The ADC data, skip_cell, cstop and offsets for each channel is input 
@@ -71,7 +82,7 @@ def adcTomV(adc, cstop, skip_cell, offsets, peak_pos = None): # offsets must be 
     The peak is calculated for HG channel regardless of saturation as the convolution is capable of estimating the peak
     The same peak will be passed as the input parameter for the LG channel conversion
     '''
-    #ADC to mV and ROI to time conversion       
+    #ADC to mV and ROI to capacitor index conversion       
     if peak_pos is None:
         peak_pos = peakFinder(adc)
 
@@ -80,40 +91,23 @@ def adcTomV(adc, cstop, skip_cell, offsets, peak_pos = None): # offsets must be 
     start = max(0, peak_pos - whl)
     end = min(len(adc), peak_pos + whl)
     
-    baseline_mask = (roi_x < start) | (roi_x > end) #roi_x[~np.isin(roi_x, list(range(start, end)))]
-    #baseline_corr = np.mean(adc[baseline_mask]) if len(baseline_mask) > 0 else 0
+    baseline_mask = (roi_x < start) | (roi_x > end) #)
+    #peak_y = adc 
+    #peak_x = roi_x 
     
-    #adc = adc - baseline_corr
-    #print(f"Baseline correction mean {np.mean(adc[baseline_mask])}, median {np.median(adc[baseline_mask])}")
-    peak_y = adc #[start : end]
-    peak_x = roi_x #[start : end]
-    #pulse_mV = (((1000 / 16384) * peak_y) - 500)  #if np.sum(peak_y) > 0 else np.zeros_like(peak_y)
-    pulse_mV = ((1000 / 16384) * peak_y)   #if np.sum(peak_y) > 0 else np.zeros_like(peak_y)
-    #baseline_corr = np.median(pulse_mV[baseline_mask]) if len(baseline_mask) > 0 else 0
-    #print(f"Pulse mv: {pulse_mV}")
-    #print(f"Baseline correction mean (mV) {np.mean(pulse_mV[baseline_mask])}, median {np.median(pulse_mV[baseline_mask])}")
-    #print(f"Baseline correction: {1000 / 16384 * baseline_corr}")S
+    pulse_mV = ((1000 / 16384) * adc)   
+
     # DRS offset correction
+
+    # Check for saturation
     saturation_flag = False
-    if np.any(pulse_mV[start:end] > 1000): #Check for saturation
+    if np.any(pulse_mV[start:end] > 1000): 
         saturation_flag = True
-    #cstop = 980
-    time = (peak_x + cstop) # + skip_cell ) 
+   
+    time = (roi_x + cstop) # + skip_cell ) 
     
     arrival_time = peak_pos  
-    # If the pulse is zero (invalid pixel or event) return 0 and not offset values. 
-    # Without this condition, if no pulse is recorded, the integrated charge of the offset voltage within the window is returned
-    
 
-
-    #if np.any(pulse_mV > 0): #REMOVE THIS CONDITION
-    #for i, t in enumerate(time):
-    #    pulse_mV[i] = pulse_mV[i] - offsets[t%1024] if offsets is not None else pulse_mV[i]
-    #    #pulse_mV = pulse_mV - offsets[(peak_x + cstop + skip_cell) % 1024] if offsets is not None else pulse_mV
-    #else:
-    # pulse_mV = np.zeros_like(pulse_mV) 
-
-    
 
     for i, t in enumerate(time):
             pulse_mV[i] = pulse_mV[i] + offsets[t%1024] if offsets is not None else pulse_mV[i]
@@ -122,10 +116,10 @@ def adcTomV(adc, cstop, skip_cell, offsets, peak_pos = None): # offsets must be 
     else:
         baseline_corr = 0
                                                                                                     
-    #baseline_corr = np.median(pulse_mV[baseline_mask]) if len(baseline_mask) > 0 else 0
     pulse_mV -= baseline_corr
-    #print(f"Pulse: {pulse_mV}")
-    return (pulse_mV, time, arrival_time, start, end, saturation_flag)
+
+    return (pulse_mV, roi_x, arrival_time, start, end, saturation_flag)
+
 
 
 
@@ -137,44 +131,20 @@ def chargePerPixel(peak_x, peak_y, start, end):
     The pulse is integrated within the window to compute the charge.
     Resistance is 50ohm
     '''
-    #print(f"peaky before smoothing {peak_y}")
-    smooth_peak = savgol_filter(peak_y, 9, 3) #sSmoothing to reduce noise before integration
-    #print(f"peaky after smoothing: {smooth_peak}")
+    # Smoothing to reduce noise before integration
+    smooth_peak = savgol_filter(peak_y, 9, 3) 
+
     peak_y = smooth_peak[start:end] #mV 
     peak_x = peak_x[start:end]  #ns 
-    #print(f"Peakx = {peak_x}, peaky = {peak_y}")
+    
     charge = np.trapezoid(peak_y, peak_x) / 50
 
-    #print(f"Charge: {charge}")
-    return charge #if charge >= 0 else 0 # Some LG channels oscillate around 0. Set charge to 0 if pulse interation returns negative
-
-
-
-
-
-'''def edgeDetector(ref_pulse_mv, peak_pos, window=20, thr_offset=0.9):
     
+    return charge 
 
 
-    peak_mv = ref_pulse_mv[peak_pos]
-    threshold = peak_mv * thr_offset
-
-    start = max(0, peak_pos - window)
-
-    for i in range(start, peak_pos-2):
-
-        if (
-            ref_pulse_mv[i]   >= threshold and
-            ref_pulse_mv[i+1] >= threshold and
-            ref_pulse_mv[i+2] >= threshold
-        ):
-            return i
-
-    # fallback if not found
-    return peak_pos'''
 
 def edgeDetector(ref_pulse_mv, peak_pos, window=20, thr_frac=0.4):
-
     '''
     Detects the rising edge of the reference pulse
     Used to correct the delay in the arrival time computation
@@ -190,7 +160,7 @@ def edgeDetector(ref_pulse_mv, peak_pos, window=20, thr_frac=0.4):
         if (
             ref_pulse_mv[i] < threshold and
             ref_pulse_mv[i+1] >= threshold and
-            ref_pulse_mv[i+2] > threshold  #ref_pulse_mv[i+2]
+            ref_pulse_mv[i+2] > threshold  
         ):
             return i+1
 
@@ -202,10 +172,7 @@ def imageGen(roi_data, cstop, skip_cell, offsets, geometry):
     Computes the LG and HG charge and the corrected pulse arrival time for each pixel
     Returns the Charge and Arrival Time data for each channel which will be used to generate the LG, HG and Arrival Time images
     '''
-    
-    #mask = (glob_ch_indices % geometry.N_CH_PER_DDB != geometry.N_CH_PER_DDB - 1)
-    #glob_ch_indices = glob_ch_indices[mask]
-    #glob_ref_ch_indices = glob_ch_indices[~mask]
+
     
     charge_image = np.zeros(geometry.N_GLOBAL_CH)
     time_image = np.zeros(geometry.N_GLOBAL_CH)
@@ -214,8 +181,7 @@ def imageGen(roi_data, cstop, skip_cell, offsets, geometry):
     for gch in range(0, geometry.N_GLOBAL_CH, geometry.N_CH_PER_DDB):
                 
         ref_data = roi_data[gch + geometry.N_CH_PER_DDB - 1]
-        #arrival_time_ref = peakFinder(ref_data)
-        #ref_time = arrival_time_ref
+
         ref_data_mv, _, arrival_time_ref, _, _,_ = adcTomV(ref_data, 0, 0, None)
         ref_time = edgeDetector(ref_data_mv, arrival_time_ref)
         block_size = 1024
@@ -272,37 +238,36 @@ def plotReferencePulses(event_id, roi_data, geometry, output_dir):
         ref_ch = gch + geometry.N_CH_PER_DDB - 1
         ref_pulse = roi_data[ref_ch]
         peak_pos = peakFinder(ref_pulse)
-        #print(f"len ={len(ref_pulse)}, peak = {peak_pos}")
-
-        #print(f"lenmv ={len(ref_pulse)}, peak = {peak_pos}")
-        # same logic as imageGen
         
         edge = edgeDetector(ref_pulse, peak_pos)
         ref_pulse, _, _, _, _,_ = adcTomV(roi_data[ref_ch], cstop=0, skip_cell=0, offsets=None)
         x = np.arange(len(ref_pulse))
         
 
-        _, ax = plt.subplots(figsize=(8,5), dpi=150)
+        fig, ax = plt.subplots(figsize=(8,5), dpi=150)
+        fig.patch.set_facecolor(BG)
+        
 
-        ax.plot(x, ref_pulse, "o--", label="Reference Pulse")
+        ax.plot(x, ref_pulse, "o--", label="Reference Pulse", color = PLOT1, zorder = 1)
 
 
         ax.scatter(edge,
                    ref_pulse[edge],
-                   color="red",
+                   color=PLOT3,
                    s=80,
-                   label="Detected Edge")
+                   label="Detected Edge",
+                   zorder = 2)
 
-        ax.axvline(peak_pos,
-                   linestyle="--",
-                   color="grey",
-                   label="Peak")
+        ax.set_title(f"Event {event_id}  |  Ref Channel {ref_ch}",  fontweight='bold',)
+        ax.set_xlabel("Sample",  fontweight='bold',)
+        ax.set_ylabel("ADC", fontweight='bold',)
 
-        ax.set_title(f"Event {event_id}  |  Ref Channel {ref_ch}")
-        ax.set_xlabel("Sample")
-        ax.set_ylabel("ADC")
-
-        ax.legend()
+        ax.legend(
+            edgecolor    = GRID,
+            loc          = "upper right",
+            prop         = {'weight': 'bold', 'size': 10},
+            handlelength = 1.5,
+            framealpha   = 0.6,)
         ax.grid()
 
         fname = ref_dir / f"refch_{ref_ch}.png"
@@ -318,7 +283,7 @@ def mapToPixels(geometry, image, pixel_map, gch):
     Need to develop logic to plot arrival times of a single gain 
     '''
     mask = (gch % geometry.N_CH_PER_DDB != geometry.N_CH_PER_DDB - 1)
-    #size = geometry.N_PCM * geometry.N_DDB
+
     pixel_map = pixel_map.astype(int)
     
     
@@ -403,63 +368,102 @@ def saveImageHiRes(event_id, label, image, output_dir, pixel_map, geometry, cmap
     plt.savefig(output_path, bbox_inches='tight')
     plt.close(fig)
 
-def chargeDist(event_id, image, label, xlabel,  output_dir):
+def chargeDist(event_id, image, label, xlabel, output_dir, charge_flag=False):
     '''
-    Saves the charge and time distributions
-    Statistics are also displayed 
+    Saves the charge and time distributions.
+    Statistics displayed with mean and MAD marker lines.
     '''
-    fig, ax = plt.subplots(figsize = (8, 8), dpi = 300)
-    image = image.flatten()
-    # Statistics
-    
-    mean_val = np.mean(image)
-    std_val = np.std(image)
-    min_val = np.min(image)
-    max_val = np.max(image)
-    med_val = np.median(image)
-    mad_val = np.median(np.abs(image - np.median(image)))
+    with plt.style.context('seaborn-v0_8-whitegrid'):
 
-    
-    stats_text = (
-        f"Mean = {mean_val:.2f}  Med  = {med_val:.2f}\n"
-        f"Std  = {std_val:.2f}   MAD  = {mad_val:.2f}\n"
-        f"Min  = {min_val:.2f}\n"
-        f"Max  = {max_val:.2f}\n"
         
-    )
+        BOX_STYLE = dict(boxstyle="round", facecolor=BOX_BG, edgecolor=GRID,
+                         alpha=0.9, linewidth=0.8)
+        N = 6
 
-    
+        fig, ax = plt.subplots(figsize=(9, 6), dpi=300)
+        fig.patch.set_facecolor(BG)
+        
 
-    ax.hist(image, bins = 'auto')
-    ax.axvline(mean_val, color="red", linestyle="--", label="Mean")
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel("Counts")
-    ax.set_title(label)
-    
-    ax.text(
-        0.97, 0.97,
-        stats_text,
-        transform=ax.transAxes,
-        fontsize=10,
-        verticalalignment='top',
-        horizontalalignment='right',
-        bbox=dict(boxstyle="round", facecolor="white", alpha=0.8)
-    )
-    charge_dir = output_dir / "Dist"
-    charge_dir.mkdir(parents=True, exist_ok=True)
+        image    = image.flatten()
+        mean_val = np.mean(image)
+        std_val  = np.std(image)
+        min_val  = np.min(image)
+        max_val  = np.max(image)
+        med_val  = np.median(image)
+        mad_val  = np.median(np.abs(image - med_val))
 
-    output_path = charge_dir /f"{event_id}_{label.replace(' ', '_')}.png"
-    plt.savefig(output_path, bbox_inches = 'tight')
-    plt.close(fig)
+        ax.hist(image, bins='auto', color=PLOT1, linewidth=0.4,
+                edgecolor=PLOT1_SEC, alpha=0.8, zorder=2)
+
+        if charge_flag:
+            threshold = N * mad_val
+            ax.axvline(mean_val, color=VLINE1, linestyle="--", linewidth=1.6,
+                       label=f"Mean", zorder=3)
+            ax.axvspan(0, threshold, alpha=0.15, color=VLINE2,
+                       label=f"Picture Threshold {N}·MAD", zorder=1)
+            ax.axvline(threshold, color=VLINE2, linestyle=":",
+                       linewidth=1.2, zorder=3)
+            ax.axvline(0, color=VLINE2, linestyle=":",
+                       linewidth=1.2, zorder=3)
+            #ax.axvline(mad_val, color=VLINE3, linewidth=2,
+            #           linestyle="--", label="MAD")
+
+        ax.grid(axis="y", color=GRID, linewidth=0.6, zorder=0)
+        ax.grid(axis="x", color=GRID, linewidth=0.4, linestyle=":", zorder=0)
+        for spine in ax.spines.values():
+            spine.set_edgecolor(GRID)
+
+        ax.set_xlabel(xlabel, fontsize=12, fontweight='bold')
+        ax.set_ylabel("Counts", fontsize=12, fontweight='bold')
+        ax.set_title(label, fontsize=14, fontweight='bold', pad=12)
+
+        
+        from matplotlib.patches import Patch
+        blank = Patch(visible=False)
+
+        # Collect whatever handles/labels the plot already registered
+        handles, labels = ax.get_legend_handles_labels()
+
+        # Append divider then stats as extra label-only rows
+        divider = " " * 22 if charge_flag else ""
+        extra_labels = [
+            divider,
+            f"Mean = {mean_val:.2f}",
+            f"Std  = {std_val:.2f}",
+            f"MAD  = {mad_val:.2f}",
+            f"Min  = {min_val:.2f}",
+            f"Max  = {max_val:.2f}",
+        ]
+        handles += [blank] * len(extra_labels)
+        labels  += extra_labels
+
+        legend = ax.legend(
+            handles, labels,
+            edgecolor    = GRID,
+            loc          = "upper right",
+            prop         = {'weight': 'bold', 'size': 10},
+            handlelength = 1.5,
+            framealpha   = 0.9,
+        )
+        legend.get_frame().set_linewidth(0.8)
+        for text in legend.get_texts():
+            text.set_color(TEXT)
+
+        charge_dir = output_dir / "Dist"
+        charge_dir.mkdir(parents=True, exist_ok=True)
+        output_path = charge_dir / f"{event_id}_{label.replace(' ', '_')}.png"
+        plt.tight_layout()
+        plt.savefig(output_path, bbox_inches='tight',
+                    facecolor=fig.get_facecolor())
+        plt.close(fig)
 
 # PLOT THE PULSES
-
 
 def plotLGHGPulseWithWindow(roi_data, cstop, offsets, skip_cell, geometry, global_ch, event_index, output_dir):
     
     """
     Plots LG and HG pulses of a given pixel
-    and saves as pcm_ddb_ch.png
+    and saves as {pcm}_{ddb}_{ch}.png
     """
 
     lch_id, ddb_id, pcm_id = geometry.local_channel_id(global_ch)
@@ -472,6 +476,9 @@ def plotLGHGPulseWithWindow(roi_data, cstop, offsets, skip_cell, geometry, globa
     
        
     fig, ax = plt.subplots(figsize=(8, 5), dpi=150)
+    fig.patch.set_facecolor(BG)
+   
+    
     adc_pulse_lg = roi_data[lg_ch]
     cstop_val_lg = cstop[lg_ch]
     skip_cell_val_lg = skip_cell[lg_ch]
@@ -497,26 +504,33 @@ def plotLGHGPulseWithWindow(roi_data, cstop, offsets, skip_cell, geometry, globa
         pulse_hg, time_hg, arrival_time_hg, start_hg, end_hg,_ = adcTomV(adc_pulse_hg, cstop_val_hg, skip_cell_val_hg, drs_offset_slice_hg, peak_pos = hg_peak)
     
     # Plot waveform
-    ax.plot(time_lg, pulse_lg, label=f"LG pcm = {pcm_id},  ddb  = {ddb_id} ch = {lch_id_lg}", color = 'blue')
-    #ax.axvline(arrival_time_lg, linestyle="-", color='blue', alpha=0.7)
-    ax.plot(time_hg, pulse_hg, label=f"HG pcm = {pcm_id},  ddb  = {ddb_id} ch = {lch_id_hg}", color = 'red')
-    #ax.axvline(arrival_time_hg, linestyle="-", color='red', alpha=0.7)
-    roi_len = len(time_lg)
-    ax.axvline(time_lg[min(start_hg, roi_len - 1)], linestyle="--", color='red',  alpha=0.3)
-    ax.axvline(time_lg[min(end_hg,   roi_len - 1)], linestyle="--", color='red',  alpha=0.3)
-    ax.axvline(time_lg[min(start_lg, roi_len - 1)], linestyle="--", color='blue', alpha=0.3)
-    ax.axvline(time_lg[min(end_lg,   roi_len - 1)], linestyle="--", color='blue', alpha=0.3)
-    mask_lg = (time_lg < time_lg[start_lg]) | (time_lg > time_lg[end_lg])
-    mask_hg = (time_hg < time_hg[start_hg]) | (time_hg > time_hg[end_hg])
-    ax.axhline(np.median(pulse_lg[mask_lg]), linestyle=":", color='blue', alpha=0.7, label = f"Baseline Median {np.median(pulse_lg[mask_lg]):.2f} mV")
-    ax.axhline(np.median(pulse_hg[mask_hg]), linestyle=":", color='red', alpha=0.7, label = f"Baseline Median {np.median(pulse_hg[mask_hg]):.2f} mV")
-    ax.axhline(np.mean(pulse_lg[mask_lg]), linestyle="--", color='blue', alpha=0.7, label = f"Baseline Mean {np.mean(pulse_lg[mask_lg]):.2f} mV")
-    ax.axhline(np.mean(pulse_hg[mask_hg]), linestyle="--", color='red', alpha=0.7, label = f"Baseline Mean {np.mean(pulse_hg[mask_hg]):.2f} mV")
+    ax.plot(time_lg, pulse_lg, label=f"LG Ch {lch_id_lg}", color = PLOT1)
 
-    ax.set_xlabel("Time Cell")
-    ax.set_ylabel("Amplitude (mV)")
-    ax.set_title(f"PCM {pcm_id} | DDB {ddb_id} | Local Ch {lch_id}")
-    ax.legend()
+    ax.plot(time_hg, pulse_hg, label=f"HG Ch {lch_id_hg}", color = PLOT3)
+
+    roi_len = len(time_lg)
+    ax.axvline(time_lg[min(start_hg, roi_len - 1)], linestyle="--", color=VLINE1,  alpha=0.8)
+    ax.axvline(time_lg[min(end_hg,   roi_len - 1)], linestyle="--", color=VLINE1,  alpha=0.8)
+    ax.axvline(time_lg[min(start_lg, roi_len - 1)], linestyle="--", color= VLINE2, alpha=0.8)
+    ax.axvline(time_lg[min(end_lg,   roi_len - 1)], linestyle="--", color= VLINE2, alpha=0.8)
+    mask_lg = (time_lg < time_lg[min(start_hg, roi_len - 1)]) | (time_lg > time_lg[min(end_hg,   roi_len - 1)])
+    mask_hg = (time_hg < time_hg[min(start_hg, roi_len - 1)]) | (time_hg > time_hg[min(end_hg,   roi_len - 1)])
+    #ax.axhline(np.median(pulse_lg[mask_lg]), linestyle=":", color=PLOT1, alpha=0.7, label = f"Baseline Median")
+    #ax.axhline(np.median(pulse_hg[mask_hg]), linestyle=":", color=PLOT3, alpha=0.7, label = f"Baseline Median")
+    ax.axhline(np.mean(pulse_lg[mask_lg]), linestyle="--", color=PLOT1, alpha=0.7, label = f"Baseline Mean")
+    ax.axhline(np.mean(pulse_hg[mask_hg]), linestyle="--", color=PLOT3, alpha=0.7, label = f"Baseline Mean")
+
+    ax.set_xlabel("ROI", fontweight='bold')
+    ax.set_ylabel("Amplitude (mV)",  fontweight='bold')
+    ax.set_title(f"PCM {pcm_id} | DDB {ddb_id}", fontweight='bold',)
+    ax.legend( 
+            edgecolor    = GRID,
+            loc          = "upper right",
+            prop         = {'weight': 'bold', 'size': 10},
+            handlelength = 1.5,
+            framealpha   = 0.6,
+            )
+    
     ax.grid(True)
 
     filename = f"pcm{pcm_id}_ddb{ddb_id}_ch{lch_id_lg}_{lch_id_hg}.png"
@@ -556,7 +570,7 @@ def saveImages(event_index, roi_slice, cstop_slice, skip_cell_slice, offsets, ge
 
 
 def processEvent(event_index, roi_slice, cstop_slice, skip_cell_slice, offsets, geometry, pixel_map, gch, output_dir):
-    #print(event_index)
+
     charge_image, time_image, sat_mask = imageGen(roi_slice, cstop_slice, skip_cell_slice, offsets, geometry)
     
     ch_image_LG, ch_image_HG = mapToPixels(geometry, charge_image, pixel_map, gch)
@@ -567,17 +581,6 @@ def processEvent(event_index, roi_slice, cstop_slice, skip_cell_slice, offsets, 
     #saveImage(f"{output_dir}/{event_index}_LG", image_LG)
     #saveImage(f"{output_dir}/{event_index}_HG", image_HG)
 
-    # Save HiRes
-    #saveImageHiRes(f"{event_index}_HG", "Integrated Charge", ch_image_HG, output_dir, pixel_map, geometry)
-    
-    #saveImageHiRes(f"{event_index}_LG", "Integrated Charge",  ch_image_LG, output_dir, pixel_map, geometry,cmap = 'cmyt.xray')
-    #saveImageHiRes(f"{event_index}_time", "Arrival Time", t_image_HG, output_dir, pixel_map, geometry, cmap='plasma')
-    #saveImageHiRes(f"{event_index}_LG_time", "Arrival Time", t_image_LG, output_dir, pixel_map, geometry, cmap='plasma')
-    #chargeDist(event_index, ch_image_HG, f"Charge Distribution (HG)- Event {event_index}", "HG Charge", output_dir)
-    #chargeDist(event_index, ch_image_LG, f"Charge Distribution (LG) - Event {event_index}","LG Charge", output_dir)
-    #chargeDist(event_index, t_image_HG, f"Arrival Time Distribution - Event {event_index}", "Arrival Time",  output_dir)
-    #plotLGHGPulseWithWindow( roi_slice, cstop_slice, offsets, skip_cell_slice, geometry, 2, event_index, output_dir)
-#
     return {
             "event_id": event_index,
             "image_LG": ch_image_LG,
@@ -586,43 +589,4 @@ def processEvent(event_index, roi_slice, cstop_slice, skip_cell_slice, offsets, 
             "time_HG": t_image_HG,
             "saturation_mask": satmask_HG
             }       
-    #return event_index
-
-
-      
-      
-      
-      
-################################
-######ONLY FOR TESTING#######    
-
-def main():
-    with h5py.File("../output/evts.h5", "r") as f:
-
-        roi_all = f["adc/roi_data"]
-        cstop_all = f["adc/cstop"]
-        skip_cell =f["adc/skip_cell"]
-        event_number = 1
-        roi_slice = roi_all[event_number]
-        cstop_slice = cstop_all[event_number]
-        skip_cell_slice = skip_cell[event_number]
-        #offsets = np.loadtxt("../DRS_OFFSET/all_cdm_ddb_drsoffsets_fro_09112024_1.cofsm")
-        config = load_config("config/config.yaml")
-        offsets = np.loadtxt(offset_filepath)
-        
-
-        geometry = CameraLayout(config)
-        output_dir = Path("../test_output")
-        output_dir.mkdir(exist_ok=True)
-
-        glob_ch_indices = np.arange(0, geometry.N_GLOBAL_CH, 1)
-        mask = (glob_ch_indices % geometry.N_CH_PER_DDB != geometry.N_CH_PER_DDB - 1)
-        glob_ch_indices = glob_ch_indices[mask]
-        plotReferencePulses(event_number, roi_slice, geometry, output_dir)
-        for ch in glob_ch_indices[1::2]:
-            #print(ch)
-            plotLGHGPulseWithWindow(roi_slice, cstop_slice, offsets, skip_cell_slice, geometry, ch, event_number, output_dir)
-        
-        print("Done")
-if __name__ == "__main__":
-    main()
+    

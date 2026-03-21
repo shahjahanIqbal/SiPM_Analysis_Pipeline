@@ -184,7 +184,6 @@ class EventProcessor():
                             )
                         )
 
-
                     for future in tqdm(as_completed(futures),
                                        total=len(futures),
                                        desc="Processing events",
@@ -212,11 +211,12 @@ class EventProcessor():
                 print(f"Processing {evb}")
                 data = np.memmap(evb, dtype=np.uint32, mode = 'r')
                 registry = self.buildRegistry(data)
-                outfile_name = Path(evb).stem
+                outfile_name = Path(evb).stem + "_processed"
 
                 self.extractEventsParallel(data, registry, outfile_name)
                 f.write(f"{Path(self.config['io']['output'])/ f'{outfile_name}.h5'}\n")
         f.close()
+        print(f"File saved: {Path(self.config['io']['output'])/ f'{outfile_name}.h5'} ")
     
 
 

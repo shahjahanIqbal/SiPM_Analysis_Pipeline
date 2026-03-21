@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import numpy as np
 from config_loader import load_config
-from image_gen import * #saveImageHiRes, processEvent, plotLGHGPulseWithWindow, plotReferencePulses, chargeDist
+from image_gen import * 
 from geometry import CameraLayout          
 from pathlib import Path
 import h5py
@@ -46,7 +46,7 @@ def main(infile_name, output_dir, event_id_start = 1, event_id_end = None, save_
             futures = []
 
 
-            for event in range(event_id_start, event_id_end + 1):
+            for event in range(event_id_start, event_id_end):
                 roi_slice = roi_all[event]
                 cstop = cstop_all[event]
                 skip_cell = skip_cell_all[event]
@@ -66,35 +66,36 @@ def main(infile_name, output_dir, event_id_start = 1, event_id_end = None, save_
                         output_dir
                     )
                 )
-                '''result = processEvent(event, 
-                                    roi_slice = roi_all[event], 
-                                    cstop_slice = cstop_all[event], 
-                                    skip_cell_slice = skip_cell_all[event], 
-                                    offsets=offset, 
-                                    geometry = geometry, 
-                                    pixel_map = pixel_map, 
-                                    gch = np.arange(geometry.N_GLOBAL_CH)
-                                    ) '''
-            for future in tqdm(as_completed(futures), total = event_id_end - event_id_start + 1, desc = "Generating Images", unit = "event"):
+
+            for future in tqdm(as_completed(futures), total = event_id_end - event_id_start , desc = "Generating Images", unit = "event"):
                 try:
                     result = future.result()
                     evt = result["event_id"]
                     if save_lg:
+                        #print("Generating Charge Image")
                         saveImageHiRes(f"{evt}_LG", "Integrated Charge",  result["image_LG"], output_dir, pixel_map, geometry,cmap = 'cmyt.xray')
                     if save_hg:
+                        #print("Generating Charge Image")
                         saveImageHiRes(f"{evt}_HG", "Integrated Charge", result["image_HG"], output_dir, pixel_map, geometry)
                     if save_arrTime:
+                        #print("Generating Arrival Time Image")
                         saveImageHiRes(f"{evt}_time", "Arrival Time", result["time_HG"], output_dir, pixel_map, geometry, cmap='plasma')
+                    if save_charge_dist_LG:
+                        #print("Generating Charge Distribution")
+                        chargeDist(evt, result["image_LG"], "Charge Distribution LG", "Charge [pC]", output_dir, charge_flag = True)
+                    if save_charge_dist_HG:
+                        #print("Generating Charge Distribution")
+                        chargeDist(evt, result["image_HG"], "Charge Distribution HG", "Charge [pC]", output_dir, charge_flag = True )
+                    if save_time_dist:
+                        #print("Generating Arrival Time Distribution")
+                        chargeDist(evt, result["time_HG"], "Arrival Time Distribution", "Time [ns]", output_dir )
                     if save_waveform:
+                        #print("Generating Waveforms")
                         plotAllPulses(roi_all[evt], cstop_all[evt], offset, skip_cell_all[evt], geometry, evt, output_dir)
                     if save_refPulse:
+                        #print("Generating Reference Pulses")
                         plotReferencePulses(evt, roi_all[evt], geometry, output_dir)
-                    if save_charge_dist_LG:
-                        chargeDist(evt, result["image_LG"], "Charge Distribution LG", "Charge [pC]", output_dir )
-                    if save_charge_dist_HG:
-                        chargeDist(evt, result["image_HG"], "Charge Distribution HG", "Charge [pC]", output_dir )
-                    if save_time_dist:
-                        chargeDist(evt, result["time_HG"], "Arrival Time Distribution", "Time [ns]", output_dir )
+                    
                 except Exception as e:
                     print("Worker crashed:", e)
                     traceback.print_exc()
@@ -104,7 +105,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate event images and pulse profiles")
 
     parser.add_argument("infile", type = str, help="H5 file path")
-    parser.add_argument("output_dir", type= str, help = "Output Directory")
+    parser.add_argument("output_dir", type= str, default = "plots", help = "Output Directory")
     parser.add_argument("--start", type = int, default = 1, help = "Start Event ID")
     parser.add_argument("--end", type = int, default = None, help = "End Event ID")
     parser.add_argument("--no-lg", action="store_true", help="Disable LG image saving")
@@ -131,5 +132,4 @@ if __name__ == "__main__":
         save_charge_dist_LG= args.cdist_lg,
         save_charge_dist_HG= args.cdist_hg,
         save_time_dist= args.tdist
-
     )
