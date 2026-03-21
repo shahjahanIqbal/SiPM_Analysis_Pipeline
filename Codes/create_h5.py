@@ -51,6 +51,7 @@ offsets     = np.loadtxt(config["calib"]["drsoffset"])
 gch         = np.arange(N_GLOBAL_CH)
 input_dir   = Path(config["io"]["output"])
 
+
 # One reference pulse waveform per DDB (64 DDBs x 150 samples)
 N_DDB_TOTAL = geometry.N_PCM * geometry.N_DDB
 
@@ -272,7 +273,7 @@ def compute_hillas(event, source, cleaning_config):
     clean_mask = tailcuts_clean(
         camera_geom,
         image,
-        picture_thresh   = 2 * med_abs_dev,  #cleaning_config["picture_thresh"],
+        picture_thresh   = 6 * med_abs_dev,  #cleaning_config["picture_thresh"],
         boundary_thresh  = med_abs_dev,      #cleaning_config["boundary_thresh"],
         min_number_picture_neighbors = 2,
     )
@@ -289,10 +290,10 @@ def compute_hillas(event, source, cleaning_config):
     tel.parameters.hillas = hillas
     return True
 
-def main(input_file, output_dir, json_path):
+def main(input_file, output_dir, json_path, dl2_flag):
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_file = output_dir / f"{input_file.stem}.h5"
+    output_file = output_dir / f"{input_file.stem}_cta_cont.h5"
 
     with open(json_path) as jf:
         meta = json.load(jf)
@@ -342,7 +343,7 @@ def main(input_file, output_dir, json_path):
             output_path      = output_file,
             overwrite        = True,
             write_dl1_images = True,
-            write_dl1_parameters = True
+            write_dl1_parameters = dl2_flag
         ) as writer:
 
             for future in tqdm(as_completed(futures), total=n_events,
@@ -394,10 +395,11 @@ def main(input_file, output_dir, json_path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert pipeline H5 to ctapipe DL1 H5")
-    parser.add_argument("output_dir", type=str,
+    parser.add_argument("output_dir", type=str, default = "events_cta"
                         help="Output directory for DL1 files")
     parser.add_argument("--json_dir", type=str, default="OBS_INFO",
                         help="Directory containing per-run JSON metadata files")
+    parser.add_argument("--no-dl2", action="store_false",  help = "Don't compute Hillas Parameters. Use it for processing calibration files")
     args = parser.parse_args()
 
     input_files = np.atleast_1d(np.loadtxt(input_dir / "output_files.txt", dtype=str))
@@ -415,4 +417,5 @@ if __name__ == "__main__":
             input_file = h5_file,
             output_dir = Path(args.output_dir),
             json_path  = json_path,
+            dl2_flag = args.dl2
         )
