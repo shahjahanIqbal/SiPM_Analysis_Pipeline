@@ -37,6 +37,9 @@ from geometry import CameraLayout
 from image_gen import processEvent
 from ctapipe.image import brightest_island, number_of_islands, largest_island
 
+from ctapipe.image import concentration_parameters
+from ctapipe.containers import ConcentrationContainer
+
 from ctapipe.image import ImageProcessor
 from ctapipe.image.cleaning import tailcuts_clean
 from ctapipe.image import hillas_parameters, number_of_islands
@@ -248,7 +251,7 @@ class SyntheticSource(EventSource):
 
 
 def jsonFinder(h5_path, json_dir):
-    json_path = json_dir / f"{h5_path.stem}.json"
+    json_path = json_dir / f"{h5_path.stem.replace('_processed', '')}.json"
     if not json_path.exists():
         raise FileNotFoundError(
             f"Missing JSON for {h5_path.name}: expected {json_path}"
@@ -282,12 +285,15 @@ def compute_hillas(event, source, cleaning_config):
     brightest_mask_sq = brightest_island(n_islands, island_labels, image)
     cleaned = image * brightest_mask_sq
 
-    if cleaned.sum() == 0 or clean_mask.sum() < 5:
+    if cleaned.sum() == 0 or clean_mask.sum() < 1:
         return False   # too few pixels survive cleaning
 
     hillas = hillas_parameters(camera_geom, cleaned)
+    conc = concentration_parameters(camera_geom, image, hillas)
+
     tel.parameters = ImageParametersContainer()
     tel.parameters.hillas = hillas
+    tel.parameters.concentration  = conc
     return True
 
 def main(input_file, output_dir, json_path, dl2_flag):
@@ -395,9 +401,9 @@ def main(input_file, output_dir, json_path, dl2_flag):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert pipeline H5 to ctapipe DL1 H5")
-    parser.add_argument("output_dir", type=str, default = "events_cta"
+    parser.add_argument("output_dir", type=str, default = "events_cta",
                         help="Output directory for DL1 files")
-    parser.add_argument("--json_dir", type=str, default="OBS_INFO",
+    parser.add_argument("--json-dir", type=str, default="OBS_INFO",
                         help="Directory containing per-run JSON metadata files")
     parser.add_argument("--no-dl2", action="store_false",  help = "Don't compute Hillas Parameters. Use it for processing calibration files")
     args = parser.parse_args()
@@ -417,5 +423,5 @@ if __name__ == "__main__":
             input_file = h5_file,
             output_dir = Path(args.output_dir),
             json_path  = json_path,
-            dl2_flag = args.dl2
+            dl2_flag = args.no_dl2
         )
