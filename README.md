@@ -1,6 +1,6 @@
-# SiPM Pipeline
+# SciCam Pipeline
 
-Data reduction pipeline for a SiPM camera used in ground-based gamma-ray astronomy.
+Data reduction pipeline for the SiPM camera being developed in TIFR, Mumbai.
 Takes raw binary EVB files from the camera DAQ and produces ctapipe-compatible DL1
 HDF5 files with optional Hillas parametrization and gamma/hadron classification.
 
