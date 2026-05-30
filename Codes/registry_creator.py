@@ -36,8 +36,8 @@ def process_chunk(args):
 
         next_start = int(all_start_index[i + 1]) if i + 1 < len(all_start_index) else len(data)
 
-        start_idx = np.searchsorted(all_end_index, si,          side="right")
-        end_idx   = np.searchsorted(all_end_index, next_start,  side="left")
+        start_idx = np.searchsorted(all_end_index, si, side="right")
+        end_idx   = np.searchsorted(all_end_index, next_start, side="left")
 
         candidate_ends = all_end_index[start_idx:end_idx]
 
@@ -94,7 +94,7 @@ def build_event_registry_parallel(
     if n_workers is None:
         n_workers = max(1, os.cpu_count() - 1)
 
-    print(f"Building event registry (parallel, {n_workers} workers)...")
+    print(f"Building event registry ({n_workers} workers)...")
 
     
     filepath = data.filename
@@ -126,7 +126,7 @@ def build_event_registry_parallel(
 
 
 def build_event_registry(data, all_start_index, all_end_index):
-    """Serial fallback — useful for small files or debugging."""
+    """Serial fallback - useful for small files or debugging."""
     print("Building event registry (serial)...")
     registry = {}
 
@@ -140,7 +140,7 @@ def build_event_registry(data, all_start_index, all_end_index):
 
         next_start = int(all_start_index[i + 1]) if i + 1 < len(all_start_index) else len(data)
 
-        start_idx = np.searchsorted(all_end_index, si,         side="right")
+        start_idx = np.searchsorted(all_end_index, si, side="right")
         end_idx   = np.searchsorted(all_end_index, next_start, side="left")
 
         candidate_ends = all_end_index[start_idx:end_idx]

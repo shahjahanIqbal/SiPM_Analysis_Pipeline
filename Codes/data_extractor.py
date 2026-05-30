@@ -4,6 +4,19 @@ import logging
 
 
 def dataExtractor(event_id, event_info, data, geometry, ROI):
+    '''
+        Input: event_id (int), event_info (dict with keys "packets" and "quality"),
+               data (1D uint32 array, pre-sliced to the event span),
+               geometry (CameraLayout), ROI (int, number of ADC samples per channel)
+        Output: dict with keys event_id, event_number, adc (N_GLOBAL_CH x ROI int16),
+                valid_mask, roi_cell, cstop, skip_cell, time_stamp, time_elapsed, quality
+        Iterates over all packets belonging to an event. For each channel it reads
+        the ROI cell count, skip cell, and cstop from the per-channel header word,
+        then unpacks the interleaved 14-bit ADC samples stored two per 32-bit word.
+        Channels absent from the valid-channel bitmask are skipped. The global channel
+        index is computed via geometry.global_channel_id with a workaround for
+        labelling of channel 8 as channel 0.
+    '''
 
     packets = event_info["packets"]
     quality = event_info["quality"]

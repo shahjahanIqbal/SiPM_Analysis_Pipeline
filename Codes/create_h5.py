@@ -35,28 +35,14 @@ from ctapipe.containers import (
 from config_loader import load_config
 from geometry import CameraLayout
 from image_gen import processEvent
-from ctapipe.image import brightest_island, number_of_islands, largest_island
+from ctapipe.image import brightest_island, number_of_islands
 
 from ctapipe.image import concentration_parameters
-from ctapipe.containers import ConcentrationContainer
-
-from ctapipe.image import ImageProcessor
 from ctapipe.image.cleaning import tailcuts_clean
 from ctapipe.image import hillas_parameters, number_of_islands
-from ctapipe.coordinates import CameraFrame
-
-config      = load_config("config/config.yaml")
-geometry    = CameraLayout(config)
-N_GLOBAL_CH = geometry.N_GLOBAL_CH
-n_samples   = geometry.roi
-pixel_map   = geometry.loadPixelMap(f"geometry/{geometry.camera_name}.h5")
-offsets     = np.loadtxt(config["calib"]["drsoffset"])
-gch         = np.arange(N_GLOBAL_CH)
-input_dir   = Path(config["io"]["output"])
 
 
-# One reference pulse waveform per DDB (64 DDBs x 150 samples)
-N_DDB_TOTAL = geometry.N_PCM * geometry.N_DDB
+
 
 reference_location = EarthLocation(
     lat    = 24.6  * u.deg,
@@ -65,6 +51,14 @@ reference_location = EarthLocation(
 )
 
 def build_subarray(geometry):
+    '''
+        Input: geometry (CameraLayout)
+        Output: ctapipe SubarrayDescription
+        Builds the full camera description including a CameraReadout with reference
+        pulse shape, CameraGeometry with physical pixel positions in mm, and an
+        OpticsDescription. The telescope is placed at a fixed reference location
+        (24.6 N, 72.7 E, 1300 m). This is the production version used by main().
+    '''
     size        = 22.1
     pixel_count = geometry.N_PCM * geometry.N_DDB * 4
     pix_id      = np.arange(pixel_count)
@@ -75,7 +69,7 @@ def build_subarray(geometry):
     pix_x    = pix_x.ravel() * u.mm
     pix_y    = pix_y.ravel() * u.mm
     pix_area = (size / 1.05) ** 2 * np.ones(pixel_count) * u.mm ** 2
-
+    reference_pulse = np.zeros((geometry.N_PCM * geometry.N_DDB, geometry.roi)) #(Total No. of DDB, No. of samples)
     geom = CameraGeometry(
         name     = "SiPM",
         pix_id   = pix_id,
@@ -85,14 +79,14 @@ def build_subarray(geometry):
         pix_type = "square",
     )
 
-    reference_pulse = np.zeros((N_DDB_TOTAL, n_samples))
+    
 
     readout = CameraReadout(
         name                         = "SiPM",
         sampling_rate                = 1 * u.GHz,
         reference_pulse_shape        = reference_pulse,
         reference_pulse_sample_width = 1 * u.ns,
-        n_channels                   = N_DDB_TOTAL,
+        n_channels                   = geometry.N_PCM * geometry.N_DDB,
         n_pixels                     = 256,
         n_samples                    = geometry.roi,
     )
@@ -121,16 +115,29 @@ def build_subarray(geometry):
     return subarray
 
 
-subarray = build_subarray(geometry)
+
 
 
 def _parse_datetime(meta, time_key):
-    """Combine Date_UTC (DD.MM.YYYY) with a HH:MM:SS time field into astropy Time."""
+    """
+        Input: meta (dict from JSON), time_key (str, e.g. "StartTime_UTC")
+        Output: astropy Time in UTC isot format
+        Splits the Date_UTC field (DD.MM.YYYY) and recombines it with the HH:MM:SS
+        value at time_key into an ISO-8601 string. Used to populate the ctapipe
+        ObservationBlockContainer timing fields.
+    """
     d, m, y = meta["Date_UTC"].split(".")
     return Time(f"{y}-{m}-{d}T{meta[time_key]}", format="isot", scale="utc")
 
 
 def build_obs_block(meta):
+    '''
+        Input: meta (dict from JSON run metadata)
+        Output: ctapipe ObservationBlockContainer
+        Populates obs_id, sb_id, pointing coordinates (RA/Dec in ICRS), start time,
+        and both actual and scheduled durations from the run JSON. RA is parsed as
+        hour angles; Dec is in degrees.
+    '''
     obs_id = np.uint64(meta["Run_No"])
 
     coord = SkyCoord(
@@ -164,6 +171,13 @@ def build_obs_block(meta):
 
 
 def build_sched_block(meta):
+    '''
+        Input: meta (dict from JSON run metadata)
+        Output: ctapipe SchedulingBlockContainer
+        Sets sb_id, producer_id (source name), and pointing mode (always TRACK).
+        Infers observing mode as ON_OFF if "on" appears in the source name without
+        "off"; otherwise defaults to UNKNOWN.
+    '''
     sb = SchedulingBlockContainer()
     sb.sb_id         = np.uint64(meta["Run_No"])
     sb.producer_id   = meta["Source_Name"]
@@ -179,7 +193,14 @@ def build_sched_block(meta):
 
 
 def build_context(meta):
-    """Fields that don't fit a ctapipe container — stored as HDF5 file-level attributes."""
+    '''
+        Input: meta (dict from JSON run metadata)
+        Output: dict mapping string keys to string values
+        Extracts observatory-specific fields (hour angle, zenith angle, azimuth, SQM,
+        trigger parameters, event count, trigger rate). The returned dict is written as 
+        HDF5 group attributes under CONTEXT/OBSERVATION.
+        Fields that don't fit a ctapipe container — stored as HDF5 file-level attributes.
+    '''
     return {
         "OBSERVATION SOURCE_NAME"         : meta["Source_Name"],
         "OBSERVATION MJD"                 : meta["MJD"],
@@ -203,9 +224,11 @@ def build_context(meta):
 
 class SyntheticSource(EventSource):
     """
-    Minimal EventSource shim. DataWriter needs this to write subarray and
-    observation metadata. No events are generated here — they are injected
-    directly via writer() in main().
+        Inherits from ctapipe EventSource. Accepts a SubarrayDescription,
+        ObservationBlockContainer, and SchedulingBlockContainer at construction.
+        Exposes them through the properties required by DataWriter without reading
+        any real file. The _generator method yields nothing; events are injected
+        directly by calling the writer in main().
     """
 
     def __init__(self, subarray, ob, sb):
@@ -251,6 +274,14 @@ class SyntheticSource(EventSource):
 
 
 def jsonFinder(h5_path, json_dir):
+    '''
+        Input: h5_path (Path), json_dir (Path)
+        Output: Path to the corresponding JSON file
+        Replaces the "_processed" suffix in the H5 stem with nothing and appends
+        .json, then checks for the file in json_dir. Raises FileNotFoundError with
+        a descriptive message if absent. Called once per input file in the main loop.
+
+    '''
     json_path = json_dir / f"{h5_path.stem.replace('_processed', '')}.json"
     if not json_path.exists():
         raise FileNotFoundError(
@@ -259,25 +290,39 @@ def jsonFinder(h5_path, json_dir):
     return json_path
 
 def mad(data):
+    '''
+        Input: data (array of any shape)
+        Output: float, median absolute deviation
+        Computes median absolute deviation over the flattened array. Used in
+        compute_hillas to set adaptive cleaning thresholds relative to the noise
+        level of the image.
+
+    '''
     return np.median(np.abs(data - np.median(data)))
 
-def compute_hillas(event, source, cleaning_config):
+def compute_hillas(event, source):
     """
-    Runs image cleaning and Hillas parametrization on the DL1 image.
-    Fills event.dl1.tel[1].parameters in place.
-    Returns False if the image is too faint to parametrize.
+        Input: event (ArrayEventContainer), source (SyntheticSource)
+        Output: bool — True if parametrization succeeded, False otherwise
+        Runs tailcuts_clean with picture/boundary thresholds of 6*MAD and 1*MAD.
+        Identifies the brightest connected island and skips the event if fewer than
+        3 pixels survive. Computes Hillas and concentration parameters and writes
+        them to event.dl1.tel[1].parameters in place.
     """
 
     tel = event.dl1.tel[1]
     image = tel.image
     med_abs_dev = mad(image.flatten())
+
+    if med_abs_dev == 0:
+        return False
     # Tailcuts cleaning — tune picture/boundary to your camera
     camera_geom = source.subarray.tel[1].camera.geometry
     clean_mask = tailcuts_clean(
         camera_geom,
         image,
-        picture_thresh   = 6 * med_abs_dev,  #cleaning_config["picture_thresh"],
-        boundary_thresh  = med_abs_dev,      #cleaning_config["boundary_thresh"],
+        picture_thresh   = 6 * med_abs_dev,  
+        boundary_thresh  = med_abs_dev,      
         min_number_picture_neighbors = 2,
     )
 
@@ -285,7 +330,7 @@ def compute_hillas(event, source, cleaning_config):
     brightest_mask_sq = brightest_island(n_islands, island_labels, image)
     cleaned = image * brightest_mask_sq
 
-    if cleaned.sum() == 0 or clean_mask.sum() < 1:
+    if cleaned.sum() == 0 or brightest_mask_sq.sum() < 3:
         return False   # too few pixels survive cleaning
 
     hillas = hillas_parameters(camera_geom, cleaned)
@@ -296,20 +341,58 @@ def compute_hillas(event, source, cleaning_config):
     tel.parameters.concentration  = conc
     return True
 
-def main(input_file, output_dir, json_path, dl2_flag):
+def main(input_file, output_dir, json_path, config, dl2_flag):
+    '''
+        Input: input_file (Path), output_dir (Path), json_path (Path or None),
+               config (dict), dl2_flag (bool)
+        Output: none; writes a ctapipe-format DL1 HDF5 to output_dir
+        Reads the preprocessed HDF5, submits processEvent for all events in parallel,
+        and writes results through DataWriter. For observation runs (dl2_flag=True) it
+        populates scheduling/observation blocks and writes Hillas parameters. For
+        calibration runs (dl2_flag=False) dummy metadata blocks are used. Context
+        attributes are appended after the DataWriter session closes.
+    '''
+
+    offsets = np.loadtxt(config["calib"]["drsoffset"])
+
+    geometry    = CameraLayout(config)
+    N_GLOBAL_CH = geometry.N_GLOBAL_CH
+    pixel_map   = geometry.loadPixelMap(f"geometry/{geometry.camera_name}.h5")
+    gch         = np.arange(N_GLOBAL_CH)
+
+
+    # One reference pulse waveform per DDB (64 DDBs x 150 samples)
+    #N_DDB_TOTAL = geometry.N_PCM * geometry.N_DDB
+
+
+    subarray = build_subarray(geometry)
+
 
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / f"{input_file.stem}_cta_cont.h5"
+    obs_id  = np.uint64(0)   # default for calibration files
+    context = {}
+    if dl2_flag:
+        if json_path is None:
+            raise ValueError(
+                "json_path is required. "
+                "Pass --json-dir or use --no-dl2 for calibration files."
+            )
+        with open(json_path) as jf:
+            meta = json.load(jf)
 
-    with open(json_path) as jf:
-        meta = json.load(jf)
-
-    obs_id  = np.uint64(meta["Run_No"])
-    ob      = build_obs_block(meta)
-    sb      = build_sched_block(meta)
-    context = build_context(meta)
-
-    source = SyntheticSource(subarray=subarray, ob=ob, sb=sb)
+        obs_id  = np.uint64(meta["Run_No"])
+        ob      = build_obs_block(meta)
+        sb      = build_sched_block(meta)
+        context = build_context(meta)
+        source = SyntheticSource(subarray=subarray, ob=ob, sb=sb)
+    else:
+        dummy_sb = SchedulingBlockContainer()
+        dummy_sb.sb_id = np.uint64(0)
+        dummy_ob = ObservationBlockContainer()
+        dummy_ob.obs_id = np.uint64(0)
+        dummy_ob.sb_id  = np.uint64(0)
+        source = SyntheticSource(subarray=subarray, ob=dummy_ob, sb=dummy_sb)
 
     PROV = Provenance()
     PROV.start_activity("dl1_write")
@@ -338,11 +421,6 @@ def main(input_file, output_dir, json_path, dl2_flag):
             for i in range(n_events)
         }
 
-        cleaning_config = {
-                            "picture_thresh" : 10,   
-                            "boundary_thresh": 5,
-                            "min_neighbors"  : 2,
-                            }
 
         with DataWriter(
             event_source     = source,
@@ -353,7 +431,7 @@ def main(input_file, output_dir, json_path, dl2_flag):
         ) as writer:
 
             for future in tqdm(as_completed(futures), total=n_events,
-                               desc=f"Writing {input_file.stem}", unit = "Events"):
+                               desc=f"Writing", unit = "Events"):
                 try:
                     result = future.result()
                 except Exception as e:
@@ -372,24 +450,26 @@ def main(input_file, output_dir, json_path, dl2_flag):
                 tel.is_valid = True
 
                 # Use LG if any HG pixel saturated, else HG
+                '''By default ctapipe seems to flip the image along the horizontal axis and store them
+                   Maybe it generates the flattened image from bottom to top
+                   The indexing of the flattened array is reversed as a workaround
+                   '''
                 if np.any(result["saturation_mask"]):
-                    tel.image = result["image_LG"].flatten().astype(np.float32)
+                    tel.image = result["image_LG"][::-1].flatten().astype(np.float32) 
                 else:
-                    tel.image = result["image_HG"].flatten().astype(np.float32)
+                    tel.image = result["image_HG"][::-1].flatten().astype(np.float32)
 
-                tel.peak_time  = result["time_HG"].flatten().astype(np.float32)
+                tel.peak_time  = result["time_HG"][::-1].flatten().astype(np.float32)
                 tel.parameters = ImageParametersContainer()
-                compute_hillas(event, source, cleaning_config)
+                if dl2_flag:
+                    compute_hillas(event, source)
 
                 writer(event)
 
-    # DataWriter does not accept context_metadata as a constructor argument in
-    # this version — write the observation attributes directly to the HDF5 file
-    # after the writer has closed and flushed.
     with h5py.File(output_file, "a") as f:
         grp = f.require_group("CONTEXT/OBSERVATION")
         for key, value in context.items():
-            # Keys are "OBSERVATION FIELDNAME" — store just the field part
+            
             attr_name = key.split(" ", 1)[-1]
             grp.attrs[attr_name] = value
 
@@ -401,27 +481,33 @@ def main(input_file, output_dir, json_path, dl2_flag):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert pipeline H5 to ctapipe DL1 H5")
-    parser.add_argument("output_dir", type=str, default = "events_cta",
-                        help="Output directory for DL1 files")
-    parser.add_argument("--json-dir", type=str, default="OBS_INFO",
-                        help="Directory containing per-run JSON metadata files")
-    parser.add_argument("--no-dl2", action="store_false",  help = "Don't compute Hillas Parameters. Use it for processing calibration files")
+    parser.add_argument("output_dir", type=str, default = "events_cta", help="Output directory for DL1 files")
+    parser.add_argument("--json-dir", type=str, default="OBS_INFO", help="Directory containing per-run JSON metadata files")
+    parser.add_argument("--no-dl2", action="store_true",  help = "Skip Hillas parameter computation. Use it for processing calibration files")
+    parser.add_argument("--config", type = str, default = 'config/config.yaml', help = "Path to the config file. Default: config/config.yaml")
+
     args = parser.parse_args()
+    config      = load_config(args.config)
+    input_dir   = Path(config["io"]["output"])
 
     input_files = np.atleast_1d(np.loadtxt(input_dir / "output_files.txt", dtype=str))
-
+    #dl2 = args.no_dl2
     for file in input_files:
         h5_file = Path(file)
-        try:
-            json_path = jsonFinder(h5_file, json_dir=Path(args.json_dir))
-        except FileNotFoundError as e:
-            print(f"Skipping {h5_file.name}: {e}")
-            continue
-
+        json_path = None
+        if not args.no_dl2: #Skip importing json if dl2 write is not enabled (for calib files)
+            try:
+                json_path = jsonFinder(h5_file, json_dir=Path(args.json_dir))
+            except FileNotFoundError as e:
+                print(f"ERROR: {e} \nSkipping file")
+                continue
+        else:
+            print(f"Calibration mode: skipping JSON and Hillas for {h5_file.name}")
         print(f"Processing {h5_file.name}")
         main(
             input_file = h5_file,
             output_dir = Path(args.output_dir),
             json_path  = json_path,
-            dl2_flag = args.no_dl2
+            config = config,
+            dl2_flag = not args.no_dl2
         )

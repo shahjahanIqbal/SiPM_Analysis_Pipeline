@@ -2,7 +2,7 @@
 *.eve
 *.h5
 *.cofsm
-
+ 
 # Logs
 *.log
 log/
@@ -11,6 +11,10 @@ log/
 __pycache__/
 *.pyc
 *.ipynb
+Codes/classifier.py
+.vscode/settings.json
+Codes/setup.py
+
 
 # Images / outputs
 *.png
@@ -29,6 +33,9 @@ backup_outputs/
 backup_codes/
 testing_batch_op/
 test_output_s0534+2201_455_flashCAL_21012026_2/
+env/
+*.joblib
+Codes/output_wrapper_test/output_files.txt
 
 # Editor junk
 .~lock.*

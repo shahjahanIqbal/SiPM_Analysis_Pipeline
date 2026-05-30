@@ -13,7 +13,6 @@ REQUIRED_STRUCTURE = {
         "expected_packets_per_event",
         "readout",
         "layout",
-        "mapping"
     ],
     "data": ["evbfilepath"],
     "calib": ["drsoffset"],
@@ -22,6 +21,15 @@ REQUIRED_STRUCTURE = {
 
 
 def is_valid_config(cfg):
+    '''
+        Input: cfg (dict)
+        Output: bool
+        Checks that the top-level sections camera_geometry, data, calib, and io are
+        present and are themselves dicts. Verifies that evbfilepath, drsoffset, and
+        output are non-empty, and that every key listed in REQUIRED_STRUCTURE exists
+        under camera_geometry. Returns False at the first missing or malformed field.
+
+    '''
     if not isinstance(cfg, dict):
         return False
 
@@ -65,6 +73,15 @@ def is_valid_config(cfg):
 # NEEDS COMMENTING OF DTYPES FOR EACH KEY 
 
 def config_creator(path):
+    '''
+        Input: path (str or Path)
+        Output: None; writes a YAML file to disk
+        Builds a skeleton config dict with all required keys present and data paths
+        set to None. Writes it to the given path using yaml.safe_dump. Intended to be
+        called automatically when the config is missing or corrupted. The user must
+        fill in evbfilepath, drsoffset, and output before running the pipeline.
+
+    '''
     config_file = {
         "camera_geometry": {
             "name": "SiPMCamera",
@@ -75,7 +92,7 @@ def config_creator(path):
             "readout": {
                 "roi_samples": 150,
                 "adc_bits": 14,
-                "lsb_mask": 0x3FFF,
+         
                 "channel_zero_dual_map": True,
             },
             "layout": {
@@ -85,9 +102,6 @@ def config_creator(path):
                 "pixel_size_mm": 22.1,
                 "pixel_gap_mm": 0.05,
             },
-            "mapping": {
-                "remap_table": None
-            }
             
         },
         "data":{
@@ -104,10 +118,19 @@ def config_creator(path):
         yaml.safe_dump(config_file, f, sort_keys=False)
 
 def load_config(path = "../config/config.yaml"):
+    '''
+        Input: path (str or Path, default "../config/config.yaml")
+        Output: dict
+        Loads and parses the YAML config. If the file does not exist, cannot be parsed,
+        or fails is_valid_config, it calls config_creator to write a fresh default and
+        warns the user to populate the paths. Always returns a dict, never raises on
+        a missing or corrupt file.
+'''
     file_path = Path(path)
 
     if not file_path.exists():
         logging.warning("Config file missing. Creating default.")
+        print(("Config file missing. Creating default."))
         file_path.parent.mkdir(parents=True, exist_ok=True)
         config_creator(file_path)
         return yaml.safe_load(file_path.read_text())

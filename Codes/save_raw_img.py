@@ -5,7 +5,7 @@ from image_gen import *
 from geometry import CameraLayout          
 from pathlib import Path
 import h5py
-import cmyt
+
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import traceback
 import os
@@ -23,6 +23,20 @@ geometry = CameraLayout(config)
 pixel_map = geometry.loadPixelMap(f"geometry/{geometry.camera_name}.h5")
 offset = np.loadtxt(Path(config["calib"]["drsoffset"]))
 def main(infile_name, output_dir, event_id_start = 1, event_id_end = None, save_lg = True, save_hg = True, save_arrTime = True, save_waveform = False, save_refPulse = False, save_charge_dist_LG = False, save_charge_dist_HG = False, save_time_dist = False):
+    '''
+        Input: infile_name (str), output_dir (Path), event_id_start (int, default 1),
+               event_id_end (int or None), save_lg (bool), save_hg (bool),
+               save_arrTime (bool), save_waveform (bool), save_refPulse (bool),
+               save_charge_dist_LG (bool), save_charge_dist_HG (bool),
+               save_time_dist (bool)
+        Output: none; writes image files under output_dir/{filename}/
+        Opens the raw HDF5 file and dispatches processEvent for each event in
+        [event_id_start, event_id_end) via ProcessPoolExecutor. As futures complete,
+        conditionally calls the appropriate image-saving functions based on the boolean
+        flags. Waveform and reference pulse saving are done serially after the parallel
+        future loop since they access the full roi_all array.
+    '''
+    
     if not Path(infile_name).exists():
         print("H5 File not found! Please enter the correct file path")
         exit
@@ -73,13 +87,13 @@ def main(infile_name, output_dir, event_id_start = 1, event_id_end = None, save_
                     evt = result["event_id"]
                     if save_lg:
                         #print("Generating Charge Image")
-                        saveImageHiRes(f"{evt}_LG", "Integrated Charge",  result["image_LG"], output_dir, pixel_map, geometry,cmap = 'cmyt.xray')
+                        saveImageHiRes(f"{evt}_LG", "Integrated Charge",  result["image_LG"], output_dir, pixel_map, geometry)
                     if save_hg:
                         #print("Generating Charge Image")
                         saveImageHiRes(f"{evt}_HG", "Integrated Charge", result["image_HG"], output_dir, pixel_map, geometry)
                     if save_arrTime:
                         #print("Generating Arrival Time Image")
-                        saveImageHiRes(f"{evt}_time", "Arrival Time", result["time_HG"], output_dir, pixel_map, geometry, cmap='plasma')
+                        saveImageHiRes(f"{evt}_Time", "Arrival Time", result["time_HG"], output_dir, pixel_map, geometry, cmap='plasma')
                     if save_charge_dist_LG:
                         #print("Generating Charge Distribution")
                         chargeDist(evt, result["image_LG"], "Charge Distribution LG", "Charge [pC]", output_dir, charge_flag = True)
