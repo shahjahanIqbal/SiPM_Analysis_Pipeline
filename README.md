@@ -244,9 +244,9 @@ python wrapper.py [OPTIONS] COMMAND [ARGS]...
 
 Commands:
   extract    Extract events from EVB file(s) to intermediate HDF5.
-  createH5   Convert intermediate HDF5 to ctapipe DL1 format.
-  saveImg    Save diagnostic images from an intermediate HDF5 file.
-  viewDl1    Browse DL1 events interactively.
+  createh5   Convert intermediate HDF5 to ctapipe DL1 format.
+  saveimg    Save diagnostic images from an intermediate HDF5 file.
+  viewdl1    Browse DL1 events interactively.
   process    Run extract then createH5 in sequence.
 ```
 
