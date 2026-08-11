@@ -29,6 +29,21 @@ DRS_OFFSET/
 geometry/
 OBS_INFO/
 output/
+output0308/
+output_files.txt
+Codes/output_wrapper_test/
+Codes/troubleshootLogs/
+troubleshootLogs/
+Codes/dl1/
+dl1/
+Codes/source_img/
+source_img/
+Codes/model_parameters/
+model_parameters/
+Codes/backup_evt_cont/
+backup_evt_cont/
+Codes/backup codes/
+backup codes/
 backup_outputs/
 backup_codes/
 testing_batch_op/
@@ -36,6 +51,8 @@ test_output_s0534+2201_455_flashCAL_21012026_2/
 env/
 *.joblib
 Codes/output_wrapper_test/output_files.txt
+README_bak.md
+Event_Files/
 
 # Editor junk
 .~lock.*
