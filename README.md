@@ -743,10 +743,10 @@ by default; skip it for calibration runs.
 
 ```bash
 # Science run
-python wrapper.py createH5 events_cta --json-dir OBS_INFO
+python wrapper.py createh5 events_cta --json-dir OBS_INFO
 
 # Calibration run (no Hillas)
-python wrapper.py createH5 calib_out --no-dl2
+python wrapper.py createh5 calib_out --no-dl2
 ```
 
 ### Combined Run
@@ -764,7 +764,7 @@ python wrapper.py process events_cta \
 ### Browsing DL1 Events
 
 ```bash
-python wrapper.py viewDl1 events_cta/run_cta_cont.h5
+python wrapper.py viewdl1 events_cta/run_cta_cont.h5
 ```
 
 Opens a matplotlib window with Next, Skip 10, and Exit buttons. Camera image on
@@ -773,7 +773,7 @@ the left; Hillas parameter table on the right when parameters are present.
 ### Saving Diagnostic Images
 
 ```bash
-python wrapper.py saveImg output/run_processed.h5 plots/ \
+python wrapper.py saveimg output/run_processed.h5 plots/ \
     --start 1 --end 100 --waveform
 ```
 
@@ -813,7 +813,7 @@ Commands:
   createh5   Convert intermediate HDF5 to ctapipe DL1 format.
   saveimg    Save diagnostic images from an intermediate HDF5 file.
   viewdl1    Browse DL1 events interactively.
-  process    Run extract then createH5 in sequence.
+  process    Run extract then createh5 in sequence.
 ```
 
 Run `python wrapper.py COMMAND --help` for full option descriptions.
