@@ -162,7 +162,7 @@ if __name__ == "__main__":
     parser.add_argument("dl1", type=str, help = "Path to the dl1 file" )
     args = parser.parse_args()
     file_path = args.dl1
-    if not Path(file_path).exists:
+    if not Path(file_path).exists():
         raise FileNotFoundError(f"File not found: {file_path}")
 
     source = EventSource(input_url=file_path, max_events=None)

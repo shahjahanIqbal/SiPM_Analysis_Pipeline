@@ -36,8 +36,9 @@ offset_filepath = Path(config["calib"]["drsoffset"])
 # Validate file paths for DRS Offsets and ADC data
 
 if not offset_filepath.exists():
-    logging.error(f"DRS OFFSET file missing! Please ensure the offset correction files are present in the directory {offset_filepath}")
-    exit
+    #logging.error(f"DRS OFFSET file missing! Please ensure the offset correction files are present in the directory {offset_filepath}")
+    #exit
+    raise FileNotFoundError(f"DRS offset file missing: {offset_filepath}")
 
 
 def gaussianFunction(x,  sigma = 5): # Width of a Cherenkov pulse is typically around 25 ns

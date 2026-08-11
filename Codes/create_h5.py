@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import os
+import logging
 import argparse
 import numpy as np
 from pathlib import Path
@@ -353,7 +354,10 @@ def main(input_file, output_dir, json_path, config, dl2_flag):
         attributes are appended after the DataWriter session closes.
     '''
 
-    offsets = np.loadtxt(config["calib"]["drsoffset"])
+    drs_path = Path(config["calib"]["drsoffset"])
+    if not drs_path.exists():
+        raise FileNotFoundError(f"DRS offset file not found: {drs_path}")
+    offsets = np.loadtxt(drs_path)
 
     geometry    = CameraLayout(config)
     N_GLOBAL_CH = geometry.N_GLOBAL_CH
@@ -401,6 +405,7 @@ def main(input_file, output_dir, json_path, config, dl2_flag):
         roi_slices   = f["adc/roi_data"][:]
         cstop_slices = f["adc/cstop"][:]
         skip_slices  = f["adc/skip_cell"][:]
+        event_ids    = f["events/event_id"][:]
         n_events     = roi_slices.shape[0]
 
     with ProcessPoolExecutor(max_workers=max(1, os.cpu_count() - 1)) as executor:
@@ -435,13 +440,13 @@ def main(input_file, output_dir, json_path, config, dl2_flag):
                 try:
                     result = future.result()
                 except Exception as e:
-                    print(f"Worker crashed for event {futures[future]}: {e}")
+                    logging.error(f"Worker crashed for event {futures[future]}: {e}")
                     continue
 
                 event = ArrayEventContainer()
 
                 event.index.obs_id   = obs_id
-                event.index.event_id = np.uint64(result["event_id"])
+                event.index.event_id = np.uint64(event_ids[futures[future]])
 
                 event.trigger.tels_with_trigger = [1]
                 event.trigger.tel[1].time       = 0.0

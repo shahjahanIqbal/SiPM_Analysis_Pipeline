@@ -38,22 +38,26 @@ def main(infile_name, output_dir, event_id_start = 1, event_id_end = None, save_
     '''
     
     if not Path(infile_name).exists():
-        print("H5 File not found! Please enter the correct file path")
-        exit
+        #print("H5 File not found! Please enter the correct file path")
+        #exit
+        raise FileNotFoundError(f"H5 file not found: {infile_name}")
     if (event_id_end == None) | (event_id_end == event_id_start):
         event_id_end = event_id_start + 1
 
     if event_id_start > event_id_end:
-        try:
-            raise RuntimeError("Event start index > end index. Bruh (-_-)")
-        except RuntimeError as e:
-            print(f"RuntimeError: {e}")
+        #try:
+        #    raise RuntimeError("Event start index > end index. Bruh (-_-)")
+        #except RuntimeError as e:
+        #    print(f"RuntimeError: {e}")
+        raise ValueError(f"Event start index {event_id_start} > end index {event_id_end}")
     output_dir = output_dir / f"{infile_name.split('/')[-1].split('.')[0]}"
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     with h5py.File(infile_name, "r") as f:
         roi_all = f["adc/roi_data"]
         cstop_all = f["adc/cstop"]
         skip_cell_all =f["adc/skip_cell"]
+        event_ids = f["events/event_id"][:]
+        n_rows = event_ids.shape[0]
   
 
         with ProcessPoolExecutor(max_workers = max(1, os.cpu_count() - 1)) as executor:
@@ -61,18 +65,18 @@ def main(infile_name, output_dir, event_id_start = 1, event_id_end = None, save_
 
 
             for event in range(event_id_start, event_id_end):
-                roi_slice = roi_all[event]
-                cstop = cstop_all[event]
-                skip_cell = skip_cell_all[event]
+                row = event - 1
+                if row < 0 or row >= n_rows:
+                    raise ValueError(f"Event {event} maps to row {row} outside 0..{n_rows-1}")
 
                 futures.append(
 
                     executor.submit(
                         processEvent,
                         event,
-                        roi_all[event],
-                        cstop_all[event],
-                        skip_cell_all[event],
+                        roi_all[row],
+                        cstop_all[row],
+                        skip_cell_all[row],
                         offset,
                         geometry,
                         pixel_map,
@@ -105,10 +109,10 @@ def main(infile_name, output_dir, event_id_start = 1, event_id_end = None, save_
                         chargeDist(evt, result["time_HG"], "Arrival Time Distribution", "Time [ns]", output_dir )
                     if save_waveform:
                         #print("Generating Waveforms")
-                        plotAllPulses(roi_all[evt], cstop_all[evt], offset, skip_cell_all[evt], geometry, evt, output_dir)
+                        plotAllPulses(roi_all[evt - 1], cstop_all[evt - 1], offset, skip_cell_all[evt - 1], geometry, evt, output_dir)
                     if save_refPulse:
                         #print("Generating Reference Pulses")
-                        plotReferencePulses(evt, roi_all[evt], geometry, output_dir)
+                        plotReferencePulses(evt, roi_all[evt - 1], geometry, output_dir)
                     
                 except Exception as e:
                     print("Worker crashed:", e)

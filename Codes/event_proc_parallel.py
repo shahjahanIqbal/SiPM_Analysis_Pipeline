@@ -12,9 +12,15 @@ from config_loader import load_config
 from geometry import CameraLayout
 from registry_creator import fetchPacketIndices, build_event_registry_parallel
 from data_extractor import dataExtractor
-from logging.handlers import RotatingFileHandler
+from logging.handlers import RotatingFileHandler, QueueHandler, QueueListener
 import datetime
+import atexit
+import multiprocessing
 from tqdm import tqdm
+
+
+_log_queue = None
+_log_listener = None
 
 
 
@@ -25,8 +31,9 @@ class EventProcessor():
     START_FRAME = 0xFBDA
     END_FRAME   = 0xEDAC
 
-    def __init__(self, config_path):
+    def __init__(self, config_path, config=None):
         self.config_path = Path(config_path)
+        self._preloaded_config = config
         self.evb_path = None
         self.evb_files = []
         self.output_dir = None
@@ -47,7 +54,11 @@ class EventProcessor():
 
         '''
         logging.info("Loading configuration")
-        self.config = load_config(self.config_path)
+        self.config = (
+            self._preloaded_config
+            if self._preloaded_config is not None
+            else load_config(self.config_path)
+        )
         print("Config loaded")
         logging.info("Initializing geometry")
         self.geometry = CameraLayout(self.config)
@@ -60,13 +71,16 @@ class EventProcessor():
 
         
         if (self.evb_path.split('/')[-1].split('.')[-1] == 'txt'):
-
+            missing = []
             for evtfile in np.atleast_1d(np.loadtxt(self.evb_path, dtype=str)):
                 if not Path(evtfile).exists():
-                    raise FileNotFoundError(f"{evtfile} file not found. Skipping...")
-                    
+                    #raise FileNotFoundError(f"{evtfile} file not found. Skipping...")
+                    logging.warning(f"Skipping missing EVB file: {evtfile}")
+                    missing.append(evtfile)
+                    continue
                 self.evb_files.append(Path(evtfile.strip()))
-                
+            if not self.evb_files:
+                raise FileNotFoundError(f"No valid EVB files found in batch list: all {len(missing)} entries are missing.\n{missing}")
         else:
             if not Path(self.evb_path).exists():
                 raise FileNotFoundError(f"EVB file not found: {self.evb_path}")
@@ -178,8 +192,16 @@ class EventProcessor():
 
         # ---------------- Write HDF5 ----------------#
 
+        if not registry:
+            logging.error(f"No valid events found in {outfile_name}. File may be corrupt.")
+            raise RuntimeError(f"No valid events found in {outfile_name}. File may be corrupt.")
+
         with h5py.File(self.output_dir / f"{outfile_name}.h5", "w") as h5f:
-            nevents = len(registry)
+            # Event IDs are 1-based (1..max_id); rows are stored compactly at
+            # d_*[event_id - 1], so the datasets need exactly max_id rows with no
+            # unused leading row. events/event_id keeps the true EVB event number
+            # (event_number) as the label lookup for downstream consumers.
+            nevents = max(registry)
             d_event = h5f.create_dataset("events/event_id", (nevents,), dtype="i4")
             d_adc = h5f.create_dataset(
                 "adc/roi_data",
@@ -235,7 +257,10 @@ class EventProcessor():
                                        unit="event"):
                         try:
                             result = future.result()
-                            idx = result["event_id"] 
+                            idx = result["event_id"] - 1
+                            if idx < 0 or idx >= nevents:
+                                logging.error(f"Event {result['event_id']} maps to row {idx} outside 0..{nevents-1}; skipping")
+                                continue
                             d_event[idx] = result["event_number"]
                             d_adc[idx] = result["adc"]
                             d_cstop[idx] = result["cstop"]
@@ -258,15 +283,28 @@ class EventProcessor():
         self.setup()
         with open(Path(self.config["io"]["output"])/ f"output_files.txt", "a") as f:  
                   
+            processed = 0
             for evb in (self.evb_files):
                 logging.info(f"Processing {evb}")    
                 print(f"Processing {evb}")
-                data = np.memmap(evb, dtype=np.uint32, mode = 'r')
-                registry = self.buildRegistry(data)
-                outfile_name = Path(evb).stem + "_processed"
+                try:
+                    data = np.memmap(evb, dtype=np.uint32, mode = 'r')
+                    registry = self.buildRegistry(data)
+                    if not registry:
+                        logging.error(f"No valid events found in {evb}. File may be corrupt.")
+                        print(f"ERROR: No valid events found in {evb}. File may be corrupt.")
+                        continue
+                    outfile_name = Path(evb).stem + "_processed"
 
-                self.extractEventsParallel(data, registry, outfile_name, n_workers = n_workers)
-                f.write(f"{Path(self.config['io']['output'])/ f'{outfile_name}.h5'}\n")
+                    self.extractEventsParallel(data, registry, outfile_name, n_workers = n_workers)
+                    f.write(f"{Path(self.config['io']['output'])/ f'{outfile_name}.h5'}\n")
+                    processed += 1
+                except Exception as e:
+                    logging.error(f"Failed to process {evb}: {e}")
+                    print(f"ERROR: Failed to process {evb}: {e}")
+                    continue
+            if processed == 0:
+                raise RuntimeError("No valid events found. None of the EVB files could be processed.")
         f.close()
         print(f"File saved: {Path(self.config['io']['output'])/ f'{outfile_name}.h5'} ")
     
@@ -274,11 +312,18 @@ class EventProcessor():
 
 def setup_logging():
     '''
-        Attaches a rotating file handler (50 MB limit, 3 backups) writing to ../log/
-        with a timestamped filename. A commented-out console handler can be re-enabled
-        for interactive debugging. Should be called once before constructing an
-        EventProcessor.
+        Multiprocess-safe logging setup.
+
+        All handlers (console + rotating file) are attached to a QueueListener
+        that runs in the MAIN process only. The root logger only gets a
+        QueueHandler, so worker processes forked by ProcessPoolExecutor push
+        LogRecords into the queue instead of writing to the log file directly.
+        This serializes every write/rollover through a single thread, so
+        concurrent workers can never interleave records or corrupt the file
+        during rotation. Records are tagged with %(processName)s so lines
+        originating from workers are identifiable.
     '''
+    global _log_queue, _log_listener
 
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
@@ -292,11 +337,11 @@ def setup_logging():
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(formatter)
-    
+
     log_dir = Path("../log")
-    
+
     if not log_dir.exists():
-         log_dir.mkdir(parents=True, exist_ok=True)
+        log_dir.mkdir(parents=True, exist_ok=True)
 
     # Rotating file handler
     timestamp = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
@@ -308,8 +353,38 @@ def setup_logging():
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
 
-    #logger.addHandler(console_handler)
-    logger.addHandler(file_handler)
+    # Only the listener thread may hold the console/file handlers.
+    if _log_queue is None:
+        _log_queue = multiprocessing.get_context("fork").Queue()
+    logger.addHandler(QueueHandler(_log_queue))
+    logger.propagate = False
+
+    if _log_listener is None:
+        _log_listener = QueueListener(
+            _log_queue,
+            console_handler,
+            file_handler,
+            respect_handler_level=True
+        )
+        _log_listener.start()
+        atexit.register(stop_logging)
+
+
+def stop_logging():
+    '''
+        Stops the logging listener (flushing any queued records) and closes the
+        queue. Safe to call more than once. Registered via atexit as a safety
+        net and invoked explicitly after a pipeline run so pending records are
+        written before the process moves on.
+    '''
+    global _log_queue, _log_listener
+
+    if _log_listener is not None:
+        _log_listener.stop()
+        _log_listener = None
+    if _log_queue is not None:
+        _log_queue.close()
+        _log_queue = None
 
 if __name__ == "__main__":
 
@@ -320,5 +395,8 @@ if __name__ == "__main__":
         config_path="config/config.yaml"
     )
 
-    pipeline.run()
+    try:
+        pipeline.run()
+    finally:
+        stop_logging()
 

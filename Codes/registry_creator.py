@@ -7,6 +7,13 @@ from tqdm import tqdm
 
 
 def fetchPacketIndices(data, START_FRAME, END_FRAME):
+    '''
+        Input: data (np.memmap of uint32), START_FRAME (int 0xFBDA), END_FRAME (int 0xEDAC)
+        Output: (all_start_index, all_end_index) - two 1D int arrays
+        Extracts the upper 16 bits of every 32-bit word and compares against the
+        known start and end frame markers. Returns the word positions of all matching
+        words. The resulting arrays are passed directly into the registry builders.
+    '''
     print("Fetching Packet Indices...")
     header = (data >> 16) & 0xFFFF
     all_start_index = np.where(header == START_FRAME)[0]
@@ -15,6 +22,16 @@ def fetchPacketIndices(data, START_FRAME, END_FRAME):
 
 
 def process_chunk(args):
+    '''
+        Input: args tuple - (filepath, dtype, start_chunk, all_start_index, all_end_index)
+        Output: dict mapping event_id (int) to {"packets": [(si, ei), ...], "quality": int}
+        Processes a subset of packet start indices. For each start index it locates
+        the matching end frame, checks for size consistency between the header field
+        and the observed packet length, and logs mismatches. 
+        
+        Quality is initialised to 3 and reduced to 2 (size mismatch) or 1 (missing or duplicate end frame).
+        Runs in a subprocess spawned by ProcessPoolExecutor.
+    '''
     
     filepath, dtype, start_chunk, all_start_index, all_end_index = args
 
@@ -74,6 +91,13 @@ def process_chunk(args):
 
 
 def _merge_registries(results):
+    '''
+        Input: results (list of dicts, one per worker)
+        Output: single merged dict with the same structure as process_chunk output
+        Iterates over all partial registries and combines packet lists for each
+        event_id. Takes the element-wise quality across workers so that any
+        defect detected by any worker is preserved in the final registry.
+    '''
     registry = {}
     for local in results:
         for event_id, val in local.items():
@@ -90,6 +114,14 @@ def build_event_registry_parallel(
     all_end_index,
     n_workers=None,
 ):
+    '''
+        Input: data (np.memmap), all_start_index (array), all_end_index (array), n_workers (int, default cpu_count - 1)
+        Output: merged event registry dict
+        Splits all_start_index into n_workers chunks and submits each to
+        process_chunk via ProcessPoolExecutor. 
+        Calls _merge_registries on completion and returns the full registry.
+
+    '''
    
     if n_workers is None:
         n_workers = max(1, os.cpu_count() - 1)
@@ -126,7 +158,9 @@ def build_event_registry_parallel(
 
 
 def build_event_registry(data, all_start_index, all_end_index):
-    """Serial fallback - useful for small files or debugging."""
+    """
+    Serial fallback - useful for small files or debugging.
+    """
     print("Building event registry (serial)...")
     registry = {}
 

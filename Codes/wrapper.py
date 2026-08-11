@@ -1,6 +1,6 @@
 import os
+import logging
 import click
-from click.core import ParameterSource
 import sys
 from pathlib import Path
 
@@ -64,19 +64,21 @@ def cli():
 
 def extract(evb, config, workers):
     
-    from event_proc_parallel import EventProcessor, setup_logging
+    from event_proc_parallel import EventProcessor, setup_logging, stop_logging
+    from config_loader import load_config
     
     setup_logging()
 
-    pipeline = EventProcessor(config_path=config)
-    ctx = click.get_current_context()
-    evb_src = ctx.get_parameter_source('evb')
+    cfg = load_config(config)
+    if evb is not None:
+        cfg['data']['evbfilepath'] = evb
 
-    if evb_src == ParameterSource.COMMANDLINE:
-        pipeline.config = __import__("config_loader").load_config(config)
-        pipeline.config['data']['evbfilepath'] = evb
+    pipeline = EventProcessor(config_path=config, config=cfg)
     
-    pipeline.run(n_workers=workers)
+    try:
+        pipeline.run(n_workers=workers)
+    finally:
+        stop_logging()
 
     
 
@@ -88,38 +90,65 @@ def extract(evb, config, workers):
 @click.option("--no-dl2", is_flag = True, default = False, help = "Skip Hillas parametrization. Use for processing calibration runs")
 @click.option("--config", default = "config/config.yaml", help = "Path to the config file")
 
-def createH5(output_dir, json_dir, no_dl2, config):
+def createh5(output_dir, json_dir, no_dl2, config):
     import numpy as np
     from create_h5 import main, jsonFinder
     from config_loader import load_config
+    from event_proc_parallel import setup_logging, stop_logging
 
-    config = load_config(config)
-    input_dir = Path(config['io']['output'])
-    txt = input_dir/ "output_files.txt"
+    setup_logging()
 
-    if not txt.exists():
-        raise click.ClickException(f"output_files.txt not found in {input_dir}.\nTry running the event processor.\nCommand: extract")
-    input_files = np.atleast_1d(np.loadtxt(txt, dtype = str))
+    try:
+        config = load_config(config)
+        input_dir = Path(config['io']['output'])
+        txt = input_dir/ "output_files.txt"
 
-    click.echo(f"Files Found: {len(input_files)}")
-    click.echo(f"File Directory: {Path(input_files[0]).parent}")
-    
-    for file in input_files:
-        h5_file = Path(file)
-        try:
-            json_path = jsonFinder(h5_file, json_dir = Path(json_dir))
-        except FileNotFoundError as e:
-            click.echo(click.style(f"Skipping {h5_file.name}: {e}", fg = 'yellow'))
-            continue
+        if not txt.exists():
+            raise click.ClickException(f"output_files.txt not found in {input_dir}.\nTry running the event processor.\nCommand: extract")
+        input_files = np.atleast_1d(np.loadtxt(txt, dtype = str))
 
-        click.echo(f"Processing {h5_file.name}")
-        main(
-            input_file = h5_file,
-            output_dir = Path(output_dir),
-            json_path = json_path,
-            config = config,
-            dl2_flag = not no_dl2 
-        )
+        click.echo(f"Files Found: {len(input_files)}")
+        click.echo(f"File Directory: {Path(input_files[0]).parent}")
+        processed_files, skipped, failed = [], [], {}
+
+        for file in input_files:
+            h5_file = Path(file)
+            json_path = None
+            if not no_dl2:
+                try:
+                    json_path = jsonFinder(h5_file, json_dir = Path(json_dir))
+                except FileNotFoundError as e:
+                    click.echo(click.style(f"Skipping {h5_file.name}: {e}", fg = 'yellow'))
+                    logging.warning(f"Skipping {h5_file.name}: {e}")
+                    skipped.append(h5_file.name)
+                    continue
+            else:
+                click.echo(f"Calibration mode: skipping JSON and Hillas for {h5_file.name}")
+
+            click.echo(f"Processing {h5_file.name}")
+            try:
+                main(
+                    input_file = h5_file,
+                    output_dir = Path(output_dir),
+                    json_path = json_path,
+                    config = config,
+                    dl2_flag = not no_dl2 
+                )
+            except Exception as e:
+                click.echo(click.style(f"Failed {h5_file.name}: {e}", fg = 'red'))
+                logging.error(f"Failed {h5_file.name}: {e}")
+                failed[h5_file.name] = str(e)
+                continue
+            processed_files.append(h5_file.name)
+        if skipped:
+            click.echo(click.style(f"Skipped {len(skipped)} (missing JSON): {', '.join(skipped)}", fg = 'yellow'))
+        if failed:
+            click.echo(click.style(f"Failed {len(failed)}: {', '.join(failed)}", fg = 'red'))
+        if not processed_files:
+            raise click.ClickException(f"No files processed ({len(skipped)} skipped: missing JSON, {len(failed)} failed). No DL1 output written.")
+        return processed_files, skipped, failed
+    finally:
+        stop_logging()
 # Save Images
 
 @cli.command()
@@ -136,7 +165,7 @@ def createH5(output_dir, json_dir, no_dl2, config):
 @click.option("--cdist-hg", is_flag=True, help="Save HG charge distribution.")
 @click.option("--tdist", is_flag=True, help="Save arrival time distribution.")
 
-def saveImg(infile, output_dir, start, end, no_lg, no_hg, no_time,waveform, refpulse, cdist_lg, cdist_hg, tdist):
+def saveimg(infile, output_dir, start, end, no_lg, no_hg, no_time,waveform, refpulse, cdist_lg, cdist_hg, tdist):
     from save_raw_img import main
     
     main(
@@ -156,7 +185,7 @@ def saveImg(infile, output_dir, start, end, no_lg, no_hg, no_time,waveform, refp
 @cli.command()
 @click.argument("dl1")
 
-def viewDl1(dl1):
+def viewdl1(dl1):
     if not Path(dl1).exists():
         raise click.ClickException(f"File not found: {dl1}")
 
@@ -172,20 +201,20 @@ def viewDl1(dl1):
 
 # Event classifier
 
-def classifyEvents(dl1, model, name, threshold):
-
-    import numpy as np
-    import h5py
-    import joblib
-    from ctapipe.io import TableLoader
-
-    if not Path(dl1).exists():
-        raise click.ClickException(f"File not found: {dl1}")
-    
-    if not Path(model).exists():
-        raise click.ClickException(f"Model not found: {model}")
-    
-    rfa_model = joblib.load(model)
+#def classifyevents(dl1, model, name, threshold):
+#
+#    import numpy as np
+#    import h5py
+#    import joblib
+#    from ctapipe.io import TableLoader
+#
+#    if not Path(dl1).exists():
+#        raise click.ClickException(f"File not found: {dl1}")
+#    
+#    if not Path(model).exists():
+#        raise click.ClickException(f"Model not found: {model}")
+#    
+#    rfa_model = joblib.load(model)
 
 
 @cli.command()
@@ -212,8 +241,18 @@ def process(ctx, config, evb, output_dir, json_dir, no_dl2, workers ):
         click.echo(click.style("\nWriting DL1...\nSkipping Hillas Parametrization", bold = True))
     else:
         click.echo(click.style("\nWriting DL1 Images and Parameters...", bold = True))
-    ctx.invoke(createH5, output_dir = output_dir, json_dir = json_dir, no_dl2 = no_dl2, config = config)
-    click.echo(click.style("\nPipeline completed successfully!", fg = "green", bold = True))
+    processed_files, skipped, failed = ctx.invoke(createh5, output_dir = output_dir, json_dir = json_dir, no_dl2 = no_dl2, config = config)
+    click.echo(click.style("\nPipeline execution complete", fg = "green", bold = True))
+    if processed_files:
+        click.echo(click.style("Processed:", fg = "green"))
+        for name in processed_files:
+            click.echo(click.style(f"  - {name}", fg = "green"))
+    if skipped:
+        click.echo(click.style(f"Skipped (missing JSON): {', '.join(skipped)}", fg = "yellow"))
+    if failed:
+        click.echo(click.style("Failed:", fg = "red"))
+        for name, reason in failed.items():
+            click.echo(click.style(f"  - {name}: {reason}", fg = "red"))
 
 # Read-Eval-Print Loop to run multiple commands 
 
@@ -288,7 +327,14 @@ def main():
     if len(sys.argv) == 1: #If no argument entered go to interactive mode
         repl()
     else:
-        cli()
+        try:
+            cli()
+        except click.ClickException as e:
+            e.show()
+            sys.exit(1)
+        except Exception as e:
+            click.echo(click.style(f"Error: {e}", fg = 'red'))
+            sys.exit(1)
 
 if __name__ == "__main__":
     main()
