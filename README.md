@@ -14,6 +14,7 @@ HDF5 files with optional Hillas parametrization and gamma/hadron classification.
 - [CLI Reference](#cli-reference)
 - [Project Structure](#project-structure)
 - [Quality Flags](#quality-flags)
+- [Important Warning](#important-warning)
 
 ---
 
@@ -294,6 +295,281 @@ Each extracted event carries an integer quality flag written to `/adc/quality`:
 | 1 | Missing or duplicate end frames; structural packet error |
 
 ---
+
+## Input Requirements, Assumptions, and Known Limitations
+
+The pipeline is intended to process EVB files produced by the SiPM camera readout/acquisition system using the packet and channel structure expected by the current implementation.
+
+The pipeline performs some structural checks while building the event registry, but it is **not a general-purpose EVB validation framework**. Successful execution therefore does not by itself guarantee that the input data are scientifically valid.
+
+### EVB Input
+
+The event extraction stage expects the EVB file to be readable as a binary stream of 32-bit unsigned integers.
+
+Packet boundaries are identified using the expected frame markers:
+
+```text
+Start frame: 0xFBDA
+End frame:   0xEDAC
+```
+
+The registry builder searches the EVB for these markers and uses the packet header information to determine packet boundaries and event IDs.
+
+For each packet, the code compares:
+
+* the packet size reported in the start frame,
+* the packet size reported in the end frame, and
+* the measured distance between the start and end frames.
+
+A packet with inconsistent size information is assigned reduced quality and is not added to the event's packet list.
+
+### Event IDs
+
+Event IDs are read directly from the EVB packet headers and are used as the indexing mechanism for the intermediate HDF5 file.
+
+The extraction stage assumes event IDs are positive and 1-based because event ID `N` is written to HDF5 row `N-1`.
+
+For example:
+
+```text
+Event ID 1 → HDF5 row 0
+Event ID 2 → HDF5 row 1
+Event ID 3 → HDF5 row 2
+```
+
+Contiguous event numbering is therefore strongly preferred, although it is not explicitly validated by the pipeline.
+
+Non-contiguous IDs can result in unused/zero-filled rows in the output HDF5. Large gaps in event numbering can also cause the HDF5 datasets to be considerably larger than the number of actual events.
+
+Duplicate event IDs are merged into the same registry entry. The current registry implementation does not explicitly reject or warn about duplicate event IDs.
+
+For reliable downstream processing, event IDs should therefore normally be:
+
+* unique,
+* positive,
+* 1-based, and
+* contiguous.
+
+### Event and Packet Integrity
+
+The registry assigns a quality value to each event based on packet-level structural checks:
+
+| Quality | Meaning                                   |
+| ------- | ----------------------------------------- |
+| `3`     | No packet-level structural error detected |
+| `2`     | Packet-size inconsistency detected        |
+| `1`     | Missing or multiple end frames detected   |
+
+The quality value is propagated into the intermediate HDF5 file.
+
+A quality value of `3` indicates that the packet structure passed the checks implemented by the registry. It should **not** be interpreted as a complete validation of the physical or scientific quality of the event.
+
+The pipeline can therefore successfully produce output from an event that is structurally imperfect if enough information remains for extraction.
+
+### Camera and Channel Configuration
+
+The default configuration describes the current SiPM camera readout:
+
+```text
+PCM count:             16
+DDBs per PCM:           4
+Channels per DDB:       9
+Global channels:      576
+Camera pixels:        256
+ADC resolution:        14 bit
+```
+
+The global channel count is calculated from the configuration:
+
+```text
+N_GLOBAL_CH =
+    PCM count × DDB count × channels per DDB
+```
+
+The event extractor uses the configured channel structure to translate CDM/DDB/channel identifiers from the EVB packet into global channel indices.
+
+The current implementation also contains a specific workaround for the readout convention in which channel 8 can appear with channel ID 0. This behavior is therefore part of the expected current packet format.
+
+Changes to the hardware channel mapping, packet header format, channel numbering, or camera architecture may require corresponding changes to the extraction and geometry code.
+
+### ROI Handling
+
+The event ROI is **not fixed to 150 samples**.
+
+The output ROI is read from:
+
+```yaml
+camera_geometry:
+  readout:
+    roi_samples: ...
+```
+
+and is used to determine the size of the extracted ADC dataset.
+
+The actual ROI reported by each channel is read from the event packet itself:
+
+```text
+ROI_Cell
+```
+
+The extractor then places the corresponding samples into the configured output ROI.
+
+Consequently, different datasets may use different configured ROIs. For example, the pipeline can operate with a 150-sample configuration as well as a 1024-sample configuration, provided that the configuration and input event data are mutually compatible.
+
+The important constraint is:
+
+> **The configured output ROI must be large enough for the ROI reported by the input event data.**
+
+If an event contains a channel with `ROI_Cell` larger than the configured output ROI, the extracted data cannot fit into the allocated output array and processing can fail.
+
+The ADC samples are unpacked two samples at a time from the packed 32-bit representation. Consequently, odd ROI lengths require caution because the current unpacking loop processes `ROI_Cell // 2` sample pairs.
+
+### DRS Calibration
+
+The DRS offset file is supplied externally through:
+
+```yaml
+calib:
+  drsoffset: ...
+```
+
+and is required by the waveform/image-generation stages.
+
+The waveform calibration operates on the DRS capacitor index using a 1024-cell periodic index:
+
+```text
+(ROI position + CStop) % 1024
+```
+
+The calibration file must  be compatible with the camera/readout configuration and contain the required channel/capacitor offset information.
+
+### Camera Geometry and Pixel Mapping
+
+The current downstream image and DL1 stages are built around the present SiPM camera geometry.
+
+The implemented camera contains:
+
+```text
+16 × 16 pixels
+256 pixels
+22.1 mm nominal pixel spacing
+square pixels
+```
+
+The pixel map is generated from the configured camera layout and is stored as an HDF5 `PIXEL_MAP` dataset.
+
+Although some camera parameters are read from configuration, downstream code still contains explicit assumptions about the current 256-pixel camera architecture and its channel-to-pixel mapping.
+
+Changing the physical camera layout, number of pixels, pixel ordering, or hardware-to-pixel mapping therefore requires corresponding changes to the geometry/image/DL1 code.
+
+### Observation Metadata
+
+Observation JSON metadata are required when `create_h5.py` is run in normal observation/DL2 mode.
+
+The corresponding JSON file is located using the processed HDF5 filename and the supplied `--json-dir`.
+
+The metadata provide information such as:
+
+* run number,
+* source name,
+* pointing coordinates,
+* start/stop time,
+* observation duration,
+* observing mode,
+* trigger information, and
+* other observation-specific context.
+
+These values are written into the ctapipe observation/scheduling containers and the output HDF5 context.
+
+JSON metadata are **not required for the raw EVB extraction stage**.
+
+They are also skipped when `create_h5.py` is run with:
+
+```text
+--no-dl2
+```
+
+which is intended for calibration processing.
+
+### Image Generation
+
+The image-generation stage converts the extracted ADC waveforms into calibrated charge and arrival-time images.
+
+Several properties of the current readout are assumed by the implementation:
+
+* 14-bit ADC values are converted using a 1000 mV full-scale.
+* HG and LG channels are paired according to the current channel layout.
+* The final channel in each DDB is treated as the reference channel.
+* DRS offsets are selected according to the channel's DRS capacitor mapping.
+* A reference-channel edge is used for the relative timing calculation.
+* HG is used for the charge image unless saturation is detected, in which case the corresponding LG image is used.
+
+### Hillas Reconstruction
+
+For normal DL2 processing, Hillas parameters are calculated from the generated camera images.
+
+The current implementation applies adaptive image cleaning based on the median absolute deviation (MAD) of the image:
+
+```text
+picture threshold  = 6 × MAD
+boundary threshold = 1 × MAD
+```
+
+The brightest surviving island is selected, and at least three surviving pixels are required before Hillas parameters are calculated.
+
+Events for which the cleaning produces no usable image are therefore not expected to produce valid Hillas parameters.
+
+A structurally valid event can consequently reach the DL1 stage while still failing Hillas parametrization because its reconstructed image is unsuitable for the calculation.
+
+### Batch EVB Processing
+
+The configured EVB path may refer either to:
+
+1. a single EVB file, or
+2. a text file containing paths to multiple EVB files.
+
+Missing files in a batch list are skipped while other valid files continue to be processed.
+
+If none of the listed files can be processed, the pipeline raises an error.
+
+### File and Working-Directory Assumptions
+
+Several scripts load configuration, geometry, calibration files, or output directories using paths relative to the current working directory.
+
+For example, parts of the image-generation, geometry, and DL1 code expect the standard project directory structure.
+
+Running the pipeline from an unexpected working directory can therefore cause failures even when the EVB data themselves are valid.
+
+The recommended approach is to run the pipeline using the project directory structure and the supplied wrapper/configuration.
+
+### Minimum Practical Input Conditions
+
+For routine processing, an input dataset should therefore satisfy:
+
+```text
+[ ] EVB file is readable as the expected 32-bit binary format
+[ ] Expected start/end frame markers are present
+[ ] Packet size information is internally consistent
+[ ] Event IDs are positive and preferably contiguous/unique
+[ ] Packet headers contain the fields expected by the extractor
+[ ] Channel numbering matches the current camera readout
+[ ] Configured ROI is compatible with the ROI stored in the event data
+[ ] DRS calibration file is available and compatible
+[ ] Camera geometry/pixel map matches the camera configuration
+[ ] Observation JSON is available when running normal DL2 processing
+[ ] Project directory structure and relative paths are preserved
+```
+
+### Important Warning
+
+**Successful execution should not be interpreted as complete data validation.**
+
+The pipeline validates only the aspects of the input that are explicitly checked by the current implementation. Other problems, including physically invalid waveforms, unexpected event content, duplicate event IDs, missing packets that are not explicitly detected, or scientifically incorrect calibration/observation metadata may not necessarily cause the pipeline to stop.
+
+The pipeline should therefore be regarded as a **data reduction and reconstruction pipeline operating under the assumptions of the current SiPM camera readout**, rather than as a comprehensive validator for arbitrary EVB files.
+
+Changes to the DAQ/readout format, camera hardware, packet structure, event-numbering scheme, ROI convention, calibration format, or observation metadata convention should be reviewed against the relevant pipeline components before processing the new data.
+
 
 ## Notes
 
