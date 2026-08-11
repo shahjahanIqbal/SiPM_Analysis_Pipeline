@@ -11,7 +11,7 @@ The pipeline also provides tools for:
 - interactive browsing of reconstructed DL1 events;
 
 ---
-Primary developer: Shahjahan Iqbal
+Primary developer: Shahjahan Iqbal\
 Project supervisor: Dr Atreyee Sinha , TIFR Mumbai
 
 The initial implementation includes the pipeline architecture, EVB packet parsing, event registry construction, parallel event extraction, waveform processing, DRS offset correction, charge and arrival-time image generation, ctapipe-compatible DL1 output, Hillas parametrization, diagnostic tools, and event-display utilities.
