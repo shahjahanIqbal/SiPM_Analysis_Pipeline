@@ -1,10 +1,20 @@
 # SciCam Pipeline
 
-Data reduction pipeline for the SiPM camera being developed in TIFR, Mumbai.
-Takes raw binary EVB files from the camera DAQ and produces ctapipe-compatible DL1
-HDF5 files with optional Hillas parametrization and gamma/hadron classification.
+Data-reduction pipeline for the SiPM camera developed at TIFR, Mumbai.
+
+The pipeline reads raw binary EVB files produced by the camera DAQ, extracts and validates event packets, applies DRS offset correction during waveform processing, and produces ctapipe-compatible DL1 HDF5 files containing reconstructed camera images and, for science runs, image parameters including Hillas and concentration parameters.
+
+The pipeline also provides tools for:
+
+- batch processing of multiple EVB files;
+- diagnostic charge, arrival-time, waveform, and reference-pulse plots;
+- interactive browsing of reconstructed DL1 events;
 
 ---
+Primary developer: Shahjahan Iqbal
+Project supervisor: Dr Atreyee Sinha , TIFR Mumbai
+
+The initial implementation includes the pipeline architecture, EVB packet parsing, event registry construction, parallel event extraction, waveform processing, DRS offset correction, charge and arrival-time image generation, ctapipe-compatible DL1 output, Hillas parametrization, diagnostic tools, and event-display utilities.
 
 ## Contents
 
