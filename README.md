@@ -14,7 +14,7 @@ HDF5 files with optional Hillas parametrization and gamma/hadron classification.
 - [CLI Reference](#cli-reference)
 - [Project Structure](#project-structure)
 - [Quality Flags](#quality-flags)
-- [Input Requirements, Assumptions, and Known Limitations](#Input-Requirements,-Assumptions,-and-Known-Limitations)
+- [Input Requirements, Assumptions, and Known Limitations](#input-requirements-assumptions-and-known-limitations)
 
 ---
 
