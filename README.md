@@ -10,12 +10,13 @@ HDF5 files with optional Hillas parametrization and gamma/hadron classification.
 
 - [Installation](#installation)
 - [Required Files](#required-files)
+- [Configuration File](#configuration-file)
 - [Analysis Procedure](#analysis-procedure)
 - [CLI Reference](#cli-reference)
 - [Project Structure](#project-structure)
 - [Quality Flags](#quality-flags)
 - [Input Requirements, Assumptions, and Known Limitations](#input-requirements-assumptions-and-known-limitations)
-- .[Configuration File](#configuration-file)
+
 
 ---
 
@@ -404,11 +405,13 @@ Changing the number of rows or columns therefore requires corresponding changes 
 ordering: column-major
 ```
 
-Describes the expected pixel/readout ordering.
-
+This field documents the intended pixel/readout ordering, but the current implementation does not read or use this configuration value when generating the pixel map.
 The current geometry implementation constructs the pixel map according to the existing PCM/DDB readout arrangement.
 
-Changing the physical pixel ordering without updating the geometry code can result in correctly extracted waveforms being mapped to the wrong camera pixels.
+The actual channel-to-pixel mapping is hard-coded in geometry.py through the PCM/DDB traversal and pixel-index assignment.
+If the physical camera readout ordering changes, modifying this configuration value alone is insufficient. The pixel-map generation algorithm in geometry.py must also be updated and the resulting geometry file regenerated.
+
+This field should therefore currently be regarded as descriptive metadata rather than an active configuration parameter.
 
 #### `pixel_size_mm`
 
@@ -946,8 +949,6 @@ Changes to the hardware channel mapping, packet header format, channel numbering
 
 ### ROI Handling
 
-The event ROI is **not fixed to 150 samples**.
-
 The output ROI is read from:
 
 ```yaml
@@ -972,10 +973,25 @@ The important constraint is:
 
 > **The configured output ROI must be large enough for the ROI reported by the input event data.**
 
-If an event contains a channel with `ROI_Cell` larger than the configured output ROI, the extracted data cannot fit into the allocated output array and processing can fail.
+**If an event contains a channel with `ROI_Cell` larger than the configured output ROI, the extracted data cannot fit into the allocated output array and processing can fail.**
 
 The ADC samples are unpacked two samples at a time from the packed 32-bit representation. Consequently, odd ROI lengths require caution because the current unpacking loop processes `ROI_Cell // 2` sample pairs.
+### output_files.txt and Repeated Runs
 
+The event extraction stage maintains a file named:
+
+`output_files.txt`
+
+inside the configured intermediate output directory.
+
+This file contains the paths of the extracted HDF5 files produced by the pipeline.
+
+The file is opened in append mode during extraction:
+
+open(..., "output_files.txt", "a")
+to accommodate both single file and batch processing. 
+Therefore, running the extraction pipeline multiple times does not replace the existing list. New output HDF5 paths are appended to the existing file.
+Stale entries from previous extraction runs can cause previously processed files to be processed again. Before repeated runs of the pipeline, ensure that stale entries are removed so that it contains only the intermediate HDF5 files intended for the current `createh5` operation.
 ### DRS Calibration
 
 The DRS offset file is supplied externally through:
