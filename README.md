@@ -1149,10 +1149,7 @@ The pipeline should therefore be regarded as a **data reduction and reconstructi
 Changes to the DAQ/readout format, camera hardware, packet structure, event-numbering scheme, ROI convention, calibration format, or observation metadata convention should be reviewed against the relevant pipeline components before processing the new data.
 
 
-## Notes
-
-- `h5_writer.py` is a legacy script with hardcoded paths, kept for reference.
-  Use `create_h5.py` (via the `createH5` command) for all production work.
-- The `viewDl1` command requires `display_reco_events.py` to be present in the
-  working directory.
-- The geometry HDF5 file is generated automatically on first run if absent.
+## Notes for Maintainers
+- wrapper.py is the primary user-facing entry point.
+- create_h5.py is the production DL1 writer.
+- h5_writer.py is retained as a legacy development script and should not be used for routine processing.
