@@ -59,7 +59,7 @@ def dataExtractor(event_id, event_info, data, geometry, ROI):
             if (validChannels >> ch) & 1:
                 data_write = np.zeros(ROI_Cell, dtype=np.int16)
 
-                # Each 28 bit ADC sample is stored in 14 bit LSB and 14 bit MSB format within a 32 bit word. The LSB and MSB bit from two successive datapoints in a channel
+                # Each 28 bit ADC sample is stored in 14 bit LSB and 14 bit MSB format within a 32 bit word. 
 
                 # Channel 8 is represented by channel ID 0. Set it to 8 for clarity in the output file.
                 channel_id = (data[dat_ind] >> 28) & 0x7
