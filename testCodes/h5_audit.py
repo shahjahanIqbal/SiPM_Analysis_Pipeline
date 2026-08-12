@@ -3,7 +3,7 @@ import glob
 import numpy as np
 import h5py
 
-BASE = "/tmp/opencode/sipm_audit/evb_test/out"
+BASE = "Codes/sipm_audit/evb_test/out"
 
 def audit(name, h5):
     with h5py.File(h5, "r") as h:
