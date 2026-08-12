@@ -7,10 +7,14 @@ import subprocess
 import sys
 import yaml
 
-CODES = "/home/shahjahan/Projects/SiPM_Analysis_Pipeline/Codes"
-WORK = "/tmp/opencode/sipm_audit/config_test"
+import audit_env
+
+CODES = audit_env.CODES
+WORK = os.path.join(audit_env.WORK, "config_test")
 CFGS = os.path.join(WORK, "cfgs")
-PY = "/home/shahjahan/anaconda3/envs/cta/bin/python"
+PY = audit_env.PY
+DRS = audit_env.ensure_drs()
+audit_env.ensure_evb()
 
 BASE = {
     "camera_geometry": {
@@ -23,8 +27,8 @@ BASE = {
         "layout": {"rows": 16, "cols": 16, "ordering": "column-major",
                    "pixel_size_mm": 22.1, "pixel_gap_mm": 0.05},
     },
-    "data": {"evbfilepath": f"{CODES}/testFiles/clean6.eve"},
-    "calib": {"drsoffset": f"{CODES}/DRS_OFFSET/all_cdm_ddb_drsoffsets_fro_09112024_1.cofsm"},
+    "data": {"evbfilepath": audit_env.CLEAN6},
+    "calib": {"drsoffset": DRS},
     "io": {"output": os.path.join(WORK, "out_valid")},
 }
 
@@ -99,10 +103,10 @@ def main():
     d = dict(BASE); d["io"] = {"output": None}
     r = run_case("11_missing_output", yaml.safe_dump(d, sort_keys=False))
     # 12 nonexistent EVB file (path present)
-    d = dict(BASE); d["data"] = {"evbfilepath": "/tmp/opencode/NONEXISTENT.eve"}
+    d = dict(BASE); d["data"] = {"evbfilepath": os.path.join(audit_env.WORK, "NONEXISTENT.eve")}
     r = run_case("12_nonexistent_evb", yaml.safe_dump(d, sort_keys=False))
     # 13 nonexistent DRS offset file (path present)
-    d = dict(BASE); d["calib"] = {"drsoffset": "/tmp/opencode/NONEXISTENT.cofsm"}
+    d = dict(BASE); d["calib"] = {"drsoffset": os.path.join(audit_env.WORK, "NONEXISTENT.cofsm")}
     r = run_case("13_nonexistent_drs", yaml.safe_dump(d, sort_keys=False))
     # 14 malformed nested camera config
     d = dict(BASE); d["camera_geometry"]["layout"] = "not-a-dict"

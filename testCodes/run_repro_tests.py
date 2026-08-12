@@ -6,11 +6,14 @@ import numpy as np
 import h5py
 import yaml
 
-PIPE = "/home/shahjahan/Projects/SiPM_Analysis_Pipeline/Codes"
-PY = "/home/shahjahan/anaconda3/envs/cta/bin/python"
-BASE = "/tmp/opencode/sipm_audit/repro_test"
-EVB = "/home/shahjahan/Projects/SiPM_Analysis_Pipeline/Codes/testFiles/clean6.eve"
-CFG = "/home/shahjahan/Projects/SiPM_Analysis_Pipeline/Codes/config/config.yaml"
+import audit_env
+
+PIPE = audit_env.CODES
+PY = audit_env.PY
+BASE = os.path.join(audit_env.WORK, "repro_test")
+EVB = audit_env.ensure_evb()
+CFG = audit_env.ensure_config()
+os.makedirs(BASE, exist_ok=True)
 KEYS = ['events/event_id', 'adc/roi_data', 'adc/cstop', 'adc/quality', 'adc/roi_cell', 'adc/skip_cell']
 
 def run(label, workers):

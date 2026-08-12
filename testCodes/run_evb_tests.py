@@ -7,13 +7,16 @@ import sys
 import numpy as np
 import h5py
 
-CODES = "/home/shahjahan/Projects/SiPM_Analysis_Pipeline/Codes"
-WORK = "/tmp/opencode/sipm_audit/evb_test"
+import audit_env
+
+CODES = audit_env.CODES
+WORK = os.path.join(audit_env.WORK, "evb_test")
 CFGS = os.path.join(WORK, "cfgs")
 OUT = os.path.join(WORK, "out")
-PY = "/home/shahjahan/anaconda3/envs/cta/bin/python"
-TF = f"{CODES}/testFiles"
-DRS = f"{CODES}/DRS_OFFSET/all_cdm_ddb_drsoffsets_fro_09112024_1.cofsm"
+PY = audit_env.PY
+TF = audit_env.TF
+DRS = audit_env.ensure_drs()
+audit_env.ensure_evb()
 
 def make_cfg(name):
     os.makedirs(CFGS, exist_ok=True)
@@ -128,7 +131,7 @@ def main():
     # missing EVB in batch list (one valid + one missing)
     batch1 = os.path.join(OUT, "batch1.txt")
     with open(batch1, "w") as f:
-        f.write(f"{TF}/clean6.eve\n/tmp/opencode/MISSING.eve\n")
+        f.write(f"{TF}/clean6.eve\n{os.path.join(audit_env.WORK, 'MISSING.eve')}\n")
     proc = extract("batch1", batch1)
     info = inspect_h5(os.path.join(OUT, "batch1"))
     print(f"{'batch1(mix)':32s} exit={proc.returncode} rows={info and info['rows']}")
@@ -138,14 +141,15 @@ def main():
     # all EVBs missing
     batch2 = os.path.join(OUT, "batch2.txt")
     with open(batch2, "w") as f:
-        f.write("/tmp/opencode/MISSING1.eve\n/tmp/opencode/MISSING2.eve\n")
+        f.write(f"{os.path.join(audit_env.WORK, 'MISSING1.eve')}\n"
+                f"{os.path.join(audit_env.WORK, 'MISSING2.eve')}\n")
     proc = extract("batch2", batch2)
     print(f"{'batch2(all missing)':32s} exit={proc.returncode}")
     err = [l for l in proc.stdout.splitlines() if "Error" in l or "ERROR" in l]
     print(f"    {err[:3]}")
 
     # nonexistent EVB direct
-    proc = extract("nonexistent", "/tmp/opencode/MISSING.eve")
+    proc = extract("nonexistent", os.path.join(audit_env.WORK, "MISSING.eve"))
     print(f"{'nonexistent-evb':32s} exit={proc.returncode}")
     err = [l for l in proc.stdout.splitlines() if "Error" in l or "ERROR" in l]
     print(f"    {err[:2]}")

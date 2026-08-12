@@ -3,7 +3,8 @@
 verify every output field of dataExtractor against independent expectations."""
 import sys, os
 import numpy as np
-sys.path.insert(0, "/home/shahjahan/Projects/SiPM_Analysis_Pipeline/Codes")
+import audit_env
+sys.path.insert(0, audit_env.CODES)
 from geometry import CameraLayout
 from data_extractor import dataExtractor
 

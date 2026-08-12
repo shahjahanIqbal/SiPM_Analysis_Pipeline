@@ -3,7 +3,9 @@ import glob
 import numpy as np
 import h5py
 
-BASE = "Codes/sipm_audit/evb_test/out"
+import audit_env
+
+BASE = os.path.join(audit_env.WORK, "evb_test", "out")
 
 def audit(name, h5):
     with h5py.File(h5, "r") as h:

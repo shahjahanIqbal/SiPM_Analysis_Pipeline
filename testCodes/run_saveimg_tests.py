@@ -4,10 +4,14 @@ import shutil
 import subprocess
 import glob
 
-PIPE = "/home/shahjahan/Projects/SiPM_Analysis_Pipeline/Codes"
-PY = "/home/shahjahan/anaconda3/envs/cta/bin/python"
-H5 = "/tmp/opencode/sipm_audit/parallel_test/w1/clean6_processed.h5"
-BASE = "/tmp/opencode/sipm_audit/saveimg_test"
+import audit_env
+
+PIPE = audit_env.CODES
+PY = audit_env.PY
+H5 = audit_env.ensure_parallel_h5()
+BASE = os.path.join(audit_env.WORK, "saveimg_test")
+audit_env.ensure_config()
+audit_env.ensure_pixelmap()
 shutil.rmtree(BASE, ignore_errors=True)
 os.makedirs(BASE, exist_ok=True)
 
@@ -66,7 +70,8 @@ check("end beyond rows rejected", r.returncode != 0 and "maps to row" in (r.stdo
       f"exit={r.returncode}")
 
 # ---- nonexistent H5 ----
-r = subprocess.run([PY, os.path.join(PIPE, "wrapper.py"), "saveimg", "/tmp/opencode/NOPE.h5",
+r = subprocess.run([PY, os.path.join(PIPE, "wrapper.py"), "saveimg",
+                    os.path.join(audit_env.WORK, "NOPE.h5"),
                     os.path.join(BASE, "bad3")],
                    capture_output=True, text=True, cwd=PIPE, env=env)
 check("missing H5 rejected", r.returncode != 0 and "H5 file not found" in (r.stdout + r.stderr),

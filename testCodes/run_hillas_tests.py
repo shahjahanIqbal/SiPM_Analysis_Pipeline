@@ -2,11 +2,14 @@ import os
 import sys
 import numpy as np
 
-PIPE = "/home/shahjahan/Projects/SiPM_Analysis_Pipeline/Codes"
+import audit_env
+
+PIPE = audit_env.CODES
 os.chdir(PIPE)
 sys.path.insert(0, PIPE)
 os.environ.setdefault("MPLBACKEND", "Agg")
 
+audit_env.ensure_config()
 from config_loader import load_config
 import create_h5 as CH
 from ctapipe.containers import ArrayEventContainer

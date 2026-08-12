@@ -4,7 +4,9 @@ import json
 import shutil
 import numpy as np
 
-PIPE = "/home/shahjahan/Projects/SiPM_Analysis_Pipeline/Codes"
+import audit_env
+
+PIPE = audit_env.CODES
 os.chdir(PIPE)
 sys.path.insert(0, PIPE)
 os.environ.setdefault("MPLBACKEND", "Agg")
@@ -14,8 +16,9 @@ from config_loader import load_config
 import create_h5
 from pathlib import Path
 
-BASE = "/tmp/opencode/sipm_audit/createh5_test"
-INPUT = "/tmp/opencode/sipm_audit/parallel_test/w1/clean6_processed.h5"
+BASE = os.path.join(audit_env.WORK, "createh5_test")
+INPUT = audit_env.ensure_parallel_h5()
+audit_env.ensure_config()
 shutil.rmtree(BASE, ignore_errors=True)
 os.makedirs(BASE, exist_ok=True)
 

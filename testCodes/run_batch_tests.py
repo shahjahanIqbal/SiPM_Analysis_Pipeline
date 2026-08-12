@@ -4,9 +4,13 @@ import json
 import shutil
 import subprocess
 
-PIPE = "/home/shahjahan/Projects/SiPM_Analysis_Pipeline/Codes"
-PY = "/home/shahjahan/anaconda3/envs/cta/bin/python"
-BASE = "/tmp/opencode/sipm_audit/batch_test"
+import audit_env
+
+PIPE = audit_env.CODES
+PY = audit_env.PY
+BASE = os.path.join(audit_env.WORK, "batch_test")
+DRS = audit_env.ensure_drs()
+audit_env.ensure_evb()
 shutil.rmtree(BASE, ignore_errors=True)
 os.makedirs(BASE, exist_ok=True)
 
@@ -16,12 +20,12 @@ def check(name, cond, detail=""):
     ok = ok and bool(cond)
     print(f"  {'PASS' if cond else 'FAIL'} {name} {detail}")
 
-TESTS = "/home/shahjahan/Projects/SiPM_Analysis_Pipeline/Codes/testFiles"
+TESTS = audit_env.TF
 evb_list = os.path.join(BASE, "evbs.txt")
 with open(evb_list, "w") as f:
     f.write(f"{TESTS}/clean6.eve\n")
     f.write(f"{TESTS}/missingEventIDs.eve\n")
-    f.write("/tmp/opencode/DOESNOTEXIST.eve\n")   # missing file in batch
+    f.write(f"{os.path.join(audit_env.WORK, 'DOESNOTEXIST.eve')}\n")   # missing file in batch
 
 conf = os.path.join(BASE, "conf.yaml")
 with open(conf, "w") as f:
@@ -40,7 +44,7 @@ camera_geometry:
 data:
   evbfilepath: {evb_list}
 calib:
-  drsoffset: /home/shahjahan/Projects/SiPM_Analysis_Pipeline/Codes/DRS_OFFSET/all_cdm_ddb_drsoffsets_fro_09112024_1.cofsm
+  drsoffset: {DRS}
 io:
   output: {BASE}
 """)

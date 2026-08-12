@@ -2,9 +2,11 @@ import os
 import sys
 import subprocess
 
-PIPE = "/home/shahjahan/Projects/SiPM_Analysis_Pipeline/Codes"
-PY = "/home/shahjahan/anaconda3/envs/cta/bin/python"
-DL1 = "/home/shahjahan/Projects/SiPM_Analysis_Pipeline/Codes/dl1/clean6_processed_cta_cont.h5"
+import audit_env
+
+PIPE = audit_env.CODES
+PY = audit_env.PY
+DL1 = audit_env.ensure_dl1()
 
 ok = True
 def check(name, cond, detail=""):
@@ -24,7 +26,7 @@ check("viewer no traceback", "Traceback" not in r.stdout + r.stderr,
       (r.stdout + r.stderr)[-600:])
 
 # --- 2. missing file ---
-r = subprocess.run([PY, "display_reco_events.py", "/tmp/opencode/NOPE.h5"],
+r = subprocess.run([PY, "display_reco_events.py", os.path.join(audit_env.WORK, "NOPE.h5")],
                    capture_output=True, text=True, cwd=PIPE, env=env, timeout=120)
 check("missing DL1 raises FileNotFoundError", r.returncode != 0 and "File not found" in r.stdout + r.stderr)
 

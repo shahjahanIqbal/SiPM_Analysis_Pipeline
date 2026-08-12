@@ -2,10 +2,12 @@
 """Registry validation: serial vs parallel builders on identical synthetic EVB,
 with 1, 2, 4, and default workers. Checks IDs, packets, quality equivalence."""
 import sys, os, numpy as np
-sys.path.insert(0, "/home/shahjahan/Projects/SiPM_Analysis_Pipeline/Codes")
+import audit_env
+sys.path.insert(0, audit_env.CODES)
 from registry_creator import fetchPacketIndices, build_event_registry, build_event_registry_parallel
 
-TF = "/home/shahjahan/Projects/SiPM_Analysis_Pipeline/Codes/testFiles"
+TF = audit_env.TF
+audit_env.ensure_evb()
 FILES = ["clean6.eve", "nonContiguousEventIDs.eve", "eventIDsNotStartingAt1.eve",
          "multipleEndFrames.eve", "duplicatedEventIDs.eve", "noEndFrames.eve", "veryLargeEventIDs.eve"]
 

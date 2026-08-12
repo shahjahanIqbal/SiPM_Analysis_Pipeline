@@ -57,6 +57,56 @@ def load_source():
     return data, events
 
 
+def make_synthetic_source(n_events=10):
+    """Build a self-contained source when the real data EVB is unavailable.
+
+    Constructs n_events events (ids 1..n_events) of 64 packets each in memory,
+    mirroring the real packet layout: 9 channel headers at +7 + ch*76, each with
+    75 data words (two 14-bit ADC samples per word), START/END markers, and a
+    Gaussian pulse on a small baseline so downstream image tests see realistic
+    pulses. Returns (data_array, events) matching load_source()'s contract.
+    """
+    roi = 150
+    n_wave = roi // 2                      # 75 ADC words per channel
+    n_header = 9 * (1 + n_wave)            # 9 channels * 76 words
+    t = np.arange(roi, dtype=np.float64)
+    gauss = np.exp(-0.5 * ((t - 60) / 5.0) ** 2)
+    packets = []
+    for ev in range(1, n_events + 1):
+        for cdm in range(16):
+            for ddb in range(4):
+                p = np.zeros(SIZE, dtype=np.uint32)
+                p[0] = (START << 16) | SIZE
+                p[1] = 0x04FF008F
+                p[2] = np.uint32(ev)
+                p[3] = np.uint32(0x123456 + ev)
+                p[4] = np.uint32(0x5A5A5A5A)
+                p[5] = np.uint32(0x03800000 | ((cdm & 0x1F) << 18) | ((ddb & 0x3) << 16))
+                p[6] = np.uint32(0x1FF << 18)      # all 9 channels valid
+                for ch in range(9):
+                    h = 7 + ch * (1 + n_wave)
+                    cstop = 100 + ch
+                    p[h] = np.uint32((roi & 0x7FF) | ((cstop & 0x3FF) << 21))
+                    amp = 9000 + 100 * ((cdm * 4 + ddb) * 9 + ch) % 4000
+                    adc = np.clip(np.rint(1500 + amp * gauss), 0, 16383).astype(np.int16)
+                    cid = ch if ch < 8 else 0
+                    for k in range(n_wave):
+                        lo = int(adc[2 * k]) & 0x3FFF
+                        hi = int(adc[2 * k + 1]) & 0x3FFF
+                        p[h + 1 + k] = np.uint32((cid << 28) | (hi << 14) | lo)
+                p[692] = 0x947a0345
+                p[693] = (END << 16) | SIZE
+                packets.append(p)
+    data = np.concatenate(packets).astype(np.uint32)
+    events = {}
+    span = 64 * SIZE
+    for i, ev in enumerate(range(1, n_events + 1)):
+        base = i * span
+        events[ev] = [(base + j * SIZE, base + (j + 1) * SIZE - 1) for j in range(64)]
+    print(f"source: SYNTHETIC ({n_events} events, {SIZE}-word packets, Gaussian pulses)")
+    return data, events
+
+
 def build_events(data, events, ids):
     """Return list of events; each event = list of packet arrays."""
     return [[np.array(data[si:ei + 1]) for si, ei in events[ev]] for ev in ids]
@@ -97,7 +147,15 @@ def verify(path, label):
 
 
 def main():
-    data, events = load_source()
+    try:
+        data, events = load_source()
+    except (FileNotFoundError, ValueError):
+        print(f"note: real EVB source not found at {SRC}; using synthetic data")
+        data, events = make_synthetic_source()
+
+    # ---- 0. clean6.eve : pristine events 1..6 (baseline) ----
+    evs = build_events(data, events, list(range(1, 7)))
+    write("clean6.eve", flat(evs))
 
     # ---- 1. noStartFrames.eve : upper 16 bits of every START word zeroed ----
     evs = build_events(data, events, list(range(1, 7)))
@@ -166,6 +224,7 @@ def main():
     write("veryLargeEventIDs.eve", flat(evs))
 
     print("\nVerification (fetchPacketIndices + build_event_registry):")
+    verify(os.path.join(OUT, "clean6.eve"), "clean6.eve")
     verify(os.path.join(OUT, "noStartFrames.eve"), "noStartFrames.eve")
     verify(os.path.join(OUT, "noEndFrames.eve"), "noEndFrames.eve")
     verify(os.path.join(OUT, "mismatchedStartEndFrames.eve"), "mismatchedStartEndFrames.eve")

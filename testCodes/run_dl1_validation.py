@@ -1,8 +1,10 @@
-import os, sys, glob
+import os, sys
 import numpy as np
 import h5py
 
-PIPE = "/home/shahjahan/Projects/SiPM_Analysis_Pipeline/Codes"
+import audit_env
+
+PIPE = audit_env.CODES
 os.chdir(PIPE)
 sys.path.insert(0, PIPE)
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
@@ -14,6 +16,8 @@ from image_gen import imageGen, mapToPixels, processEvent
 from ctapipe.io import EventSource
 from ctapipe.containers import DL1CameraContainer
 
+audit_env.ensure_config()
+audit_env.ensure_pixelmap()
 cfg = load_config("config/config.yaml")
 geom = CameraLayout(cfg)
 pixel_map = geom.loadPixelMap(f"geometry/{geom.camera_name}.h5")
@@ -25,19 +29,8 @@ def check(name, cond, detail=""):
     ok = ok and bool(cond)
     print(f"  {'PASS' if cond else 'FAIL'} {name} {detail}")
 
-H5 = "/tmp/opencode/sipm_audit/parallel_test/w1/clean6_processed.h5"
-DL1 = glob.glob("/home/shahjahan/Projects/SiPM_Analysis_Pipeline/Codes/dl1/clean6_processed_cta_cont.h5")
-if not DL1:
-    # create on the fly
-    import subprocess
-    subprocess.run(["/home/shahjahan/anaconda3/envs/cta/bin/python", "wrapper.py",
-                    "createh5", "/tmp/opencode/sipm_audit/dl1_xcheck",
-                    "--config", "config/config.yaml"],
-                   cwd=PIPE, env={**os.environ, "HDF5_USE_FILE_LOCKING": "FALSE"},
-                   check=True)
-    DL1 = glob.glob("/tmp/opencode/sipm_audit/dl1_xcheck/clean6_processed_cta_cont.h5")
-DL1 = DL1[0]
-print(f"  DL1 = {DL1}")
+H5 = audit_env.ensure_parallel_h5()
+DL1 = audit_env.ensure_dl1()
 
 # recompute images in-process from extract H5
 with h5py.File(H5, "r") as f:

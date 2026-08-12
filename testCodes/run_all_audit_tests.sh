@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Run every audit harness. Exit 0 only if ALL harnesses report PASS.
+# The interpreter defaults to python3; override with SIPM_PYTHON or PY.
 set -u
 PIPE="$(cd "$(dirname "${BASH_SOURCE[0]}")/Codes" && pwd)"
-PY="${PY:-/home/shahjahan/anaconda3/envs/cta/bin/python}"
+PY="${PY:-${SIPM_PYTHON:-python3}}"
 LOG_DIR="$(dirname "${BASH_SOURCE[0]}")/logs"
 mkdir -p "$LOG_DIR"
 export HDF5_USE_FILE_LOCKING=FALSE

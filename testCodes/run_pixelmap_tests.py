@@ -5,8 +5,10 @@ import subprocess
 import numpy as np
 import h5py
 
-PIPE = "/home/shahjahan/Projects/SiPM_Analysis_Pipeline/Codes"
-COMMITTED = os.path.join(PIPE, "geometry", "SiPMCamera.h5")
+import audit_env
+
+PIPE = audit_env.CODES
+COMMITTED = audit_env.ensure_pixelmap()
 
 ok = True
 def check(name, cond, detail=""):
@@ -33,9 +35,9 @@ with tempfile.TemporaryDirectory() as td:
                 "  expected_packets_per_event: 64\n"
                 "  readout:\n    roi_samples: 150\n"
                 "  layout:\n    rows: 16\n    cols: 16\n"
-                "data:\n  evbfilepath: /tmp/opencode/x.eve\n"
-                "calib:\n  drsoffset: /tmp/opencode/y.cofsm\n"
-                "io:\n  output: /tmp/opencode/z\n")
+                f"data:\n  evbfilepath: {os.path.join(audit_env.WORK, 'x.eve')}\n"
+                f"calib:\n  drsoffset: {os.path.join(audit_env.WORK, 'y.cofsm')}\n"
+                f"io:\n  output: {os.path.join(audit_env.WORK, 'z')}\n")
     env = dict(os.environ)
     env["PYTHONPATH"] = PIPE
     sys.path.insert(0, PIPE)
@@ -60,6 +62,7 @@ with tempfile.TemporaryDirectory() as td:
           f"(cwd={os.path.relpath(td, os.getcwd())}); file outside project dir: {outside}")
 
 # ---- 3 gch <-> local round trip for all 576 channels (in-process) ----
+audit_env.ensure_config()
 os.chdir(PIPE)
 sys.path.insert(0, PIPE)
 from config_loader import load_config

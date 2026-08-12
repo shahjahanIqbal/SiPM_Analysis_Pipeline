@@ -1,25 +1,59 @@
 # Audit Test Harnesses
 
-Production-readiness audit harnesses for the SiPM analysis pipeline (run 2026-08-11, repo HEAD
-`1748c1e`). See `FINAL_REPORT.md` for the results (verdict: NOT READY) and the A–H findings.
+Production-readiness audit harnesses for the SiPM analysis pipeline. They run on any
+system with no machine-specific configuration: all paths are derived at runtime from
+`testCodes/audit_env.py` (repository-relative) or the system temp dir, and the
+gitignored inputs a fresh clone lacks (test EVBs, DRS offset file, camera pixel map,
+`config/config.yaml`, and the cross-section intermediate products) are generated on
+demand.
+
+## Requirements
+
+- Python 3 with `numpy`, `scipy`, `h5py`, `tables`, `yaml`, `tqdm`, `matplotlib`
+- `ctapipe` (>= 0.20) for the DL1 sections
+- A copy of the repository, e.g. cloned from GitHub
+
+No hardcoded user/environment paths are needed. The interpreter used to run the
+pipeline defaults to the one executing the harness; set `SIPM_PYTHON` to force a
+different environment (e.g. a conda env):
+
+```bash
+export SIPM_PYTHON=/path/to/your/python
+```
 
 ## How to run
 
-All harnesses assume the repo lives at `/home/shahjahan/Projects/SiPM_Analysis_Pipeline` and the
-Python env is `/home/shahjahan/anaconda3/envs/cta/bin/python` (needs tqdm; ctapipe 0.28). If the
-repo moves, update the `PIPE` / `EVB` / `PY` constants at the top of each file.
+Run one section from anywhere:
 
 ```bash
-cd /home/shahjahan/Projects/SiPM_Analysis_Pipeline/Codes
-PY=/home/shahjahan/anaconda3/envs/cta/bin/python
-$PY ../testCodes/run_<section>_tests.py
+python testCodes/run_<section>_tests.py
 ```
 
-or run everything:
+or run everything (in dependency order, results in `testCodes/logs/`):
 
 ```bash
-bash ../testCodes/run_all_audit_tests.sh
+bash testCodes/run_all_audit_tests.sh
 ```
+
+Exit status is non-zero if any harness fails.
+
+## What gets generated
+
+The first run provisions the following under a clean clone (never overwriting
+existing files):
+
+| Input | Where | When missing |
+|---|---|---|
+| `Codes/testFiles/*.eve` (clean6 + 12 replicas) | repo | `create_test_evb.py` builds synthetic packets (Gaussian pulses) when the real EVB is absent |
+| `Codes/config/config.yaml` | repo (gitignored) | a working template pointing at the generated EVB/DRS |
+| DRS offset file | repo (gitignored) or stub | a zero-offset stub of the expected shape under the temp dir |
+| `Codes/geometry/SiPMCamera.h5` | repo (gitignored) | regenerated via `createPixelMap()` |
+| extract H5, DL1 (clean6) | temp dir / `Codes/dl1/` | re-run by the harness that needs them |
+
+Harnesses write outputs under `<tempdir>/sipm_audit/<section>_test/` (override with
+`SIPM_AUDIT_WORK`) and never touch a real `config.yaml`. The optional real-data
+resource section (`run_resources.py`) only runs when a real EVB is available; point
+`SIPM_REAL_EVB` at one to enable it.
 
 ## Harness inventory
 
@@ -49,8 +83,4 @@ bash ../testCodes/run_all_audit_tests.sh
 
 - `data_extractor_dbg.py` is a debug copy of the production `data_extractor.py`; it is NOT the
   production module and may drift.
-- Harnesses write outputs under `/tmp/opencode/sipm_audit/<section>_test/` and never touch
-  `Codes/config/config.yaml` (each uses per-case temp configs).
-- `run_all_audit_tests.sh` sets `HDF5_USE_FILE_LOCKING=FALSE` and routes stdout/stderr to
-  `testCodes/logs/`.
 - Extract H5s are read with h5py; DL1s must be read via ctapipe `EventSource` (blosc2-compressed).

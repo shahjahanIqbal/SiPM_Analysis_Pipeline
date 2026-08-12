@@ -5,9 +5,12 @@ import shutil
 import subprocess
 import numpy as np
 
-PIPE = "/home/shahjahan/Projects/SiPM_Analysis_Pipeline/Codes"
-PY = "/home/shahjahan/anaconda3/envs/cta/bin/python"
-BASE = "/tmp/opencode/sipm_audit/obsmeta_test"
+import audit_env
+
+PIPE = audit_env.CODES
+PY = audit_env.PY
+BASE = os.path.join(audit_env.WORK, "obsmeta_test")
+DRS = audit_env.ensure_drs()
 shutil.rmtree(BASE, ignore_errors=True)
 os.makedirs(BASE, exist_ok=True)
 
@@ -73,15 +76,15 @@ camera_geometry:
     rows: 16
     cols: 16
 data:
-  evbfilepath: /tmp/opencode/x.eve
+  evbfilepath: {os.path.join(audit_env.WORK, 'x.eve')}
 calib:
-  drsoffset: /home/shahjahan/Projects/SiPM_Analysis_Pipeline/Codes/DRS_OFFSET/all_cdm_ddb_drsoffsets_fro_09112024_1.cofsm
+  drsoffset: {DRS}
 io:
   output: {BASE}
 """)
 outfiles = os.path.join(BASE, "output_files.txt")
 with open(outfiles, "w") as f:
-    f.write("/tmp/opencode/sipm_audit/parallel_test/w1/clean6_processed.h5\n")
+    f.write(audit_env.ensure_parallel_h5() + "\n")
 r = subprocess.run([PY, os.path.join(PIPE, "wrapper.py"), "createh5", outd,
                     "--json-dir", json_dir, "--config", conf],
                    capture_output=True, text=True, cwd=PIPE,

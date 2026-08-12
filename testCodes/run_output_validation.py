@@ -3,11 +3,14 @@ import sys
 import numpy as np
 import h5py
 
-PIPE = "/home/shahjahan/Projects/SiPM_Analysis_Pipeline/Codes"
+import audit_env
+
+PIPE = audit_env.CODES
 sys.path.insert(0, PIPE)
 os.chdir(PIPE)
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
+audit_env.ensure_config()
 from config_loader import load_config
 from geometry import CameraLayout
 
@@ -20,8 +23,8 @@ def check(name, cond, detail=""):
     ok = ok and bool(cond)
     print(f"  {'PASS' if cond else 'FAIL'} {name} {detail}")
 
-EVB = "/home/shahjahan/Projects/SiPM_Analysis_Pipeline/Codes/testFiles/clean6.eve"
-H5 = "/tmp/opencode/sipm_audit/parallel_test/w1/clean6_processed.h5"
+EVB = audit_env.ensure_evb()
+H5 = audit_env.ensure_parallel_h5()
 ROI = 150
 
 # independent re-implementation of unpacking (from the EVB layout)

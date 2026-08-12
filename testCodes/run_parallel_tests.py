@@ -5,10 +5,13 @@ import glob
 import numpy as np
 import h5py
 
-PIPE = "/home/shahjahan/Projects/SiPM_Analysis_Pipeline/Codes"
-PY = "/home/shahjahan/anaconda3/envs/cta/bin/python"
-BASE = "/tmp/opencode/sipm_audit/parallel_test"
-EVB = "/home/shahjahan/Projects/SiPM_Analysis_Pipeline/Codes/testFiles/clean6.eve"
+import audit_env
+
+PIPE = audit_env.CODES
+PY = audit_env.PY
+BASE = os.path.join(audit_env.WORK, "parallel_test")
+EVB = audit_env.ensure_evb()
+DRS = audit_env.ensure_drs()
 
 os.makedirs(BASE, exist_ok=True)
 def make_conf(tag):
@@ -31,7 +34,7 @@ camera_geometry:
 data:
   evbfilepath: {EVB}
 calib:
-  drsoffset: /home/shahjahan/Projects/SiPM_Analysis_Pipeline/Codes/DRS_OFFSET/all_cdm_ddb_drsoffsets_fro_09112024_1.cofsm
+  drsoffset: {DRS}
 io:
   output: {outd}
 """)
